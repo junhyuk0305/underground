@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <title>언더그라운드맵 — 이 동네에 사는 사람만 아는 지도</title>
+  <meta name="description" content="관광객에게는 보이지 않고, 로컬 거주자만 들어올 수 있는 지도. 서울은 구 단위, 그 외는 시 단위로 잠긴다. 동네 매장의 유휴 시간·공간을 로컬 호스트의 모임 무대로.">
+  <meta property="og:title" content="언더그라운드맵">
+  <meta property="og:description" content="이 동네에 사는 사람만 아는 지도. (서울=구 · 그외=시)">
+
+  <!-- 폰트 · Tailwind(유틸용) -->
+  <link href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css" rel="stylesheet">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="assets/css/app.css">
+
+  <!-- 파비콘: 앰버 UG 모노그램 -->
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230A0A0C'/%3E%3Ctext x='16' y='22' font-family='sans-serif' font-size='15' font-weight='800' fill='%23FE6721' text-anchor='middle'%3EUG%3C/text%3E%3C/svg%3E">
+
+  <!-- 설정: config.js 가 있으면 실데이터, 없으면 체험(mock) 모드 -->
+  <script src="config.js" onerror="console.info('config.js 없음 → 체험 모드')"></script>
+</head>
+<body>
+  <div class="page">
+    <!-- 좌 광고 레일 (데스크톱 ≥1100px 에서만) -->
+    <aside class="ad-rail" id="adLeft" aria-hidden="true"><div class="ad-rail__inner"></div></aside>
+
+    <!-- 중앙 앱 셸 (핸드폰 너비) -->
+    <main class="app-shell">
+      <div class="modebar" id="modebar"></div>
+      <header class="appbar" id="appbar"></header>
+      <section class="screen" id="screen"></section>
+      <nav class="tabbar hidden" id="tabbar"></nav>
+      <div class="toast" id="toast"></div>
+    </main>
+
+    <!-- 우 광고 레일 -->
+    <aside class="ad-rail" id="adRight" aria-hidden="true"><div class="ad-rail__inner"></div></aside>
+  </div>
+
+  <script type="module" src="assets/js/app.js"></script>
+</body>
+</html>

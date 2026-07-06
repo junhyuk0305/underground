@@ -1,0 +1,698 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>언더그라운드맵 · 디자인 시스템 v0.2 (Dark)</title>
+<link href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css" rel="stylesheet">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  /* ── Surface / Canvas (33333.html 팔레트) ── */
+  --bg:#0c0c0c;          /* 앱 캔버스 (기본 블랙) */
+  --bg-deep:#050505;     /* 게이트 최심부 */
+  --surface:#161616;     /* 카드 */
+  --surface-2:#1e1e1e;   /* 인풋·강조면 */
+  --elevated:#242424;
+  --line:rgba(255,255,255,.09);
+  --line-strong:rgba(255,255,255,.16);
+
+  /* ── Text (흰 위계) ── */
+  --t-hi:#ffffff;        /* 제목 */
+  --t-1:#f4f4f5;         /* 본문 강 */
+  --t-2:rgba(255,255,255,.66); /* 본문 */
+  --t-3:rgba(255,255,255,.44); /* 캡션 */
+  --t-4:rgba(255,255,255,.30); /* disabled/placeholder */
+
+  /* ── Brand (주황) ── */
+  --brand:#fe6721;        /* 프라이머리 */
+  --brand-strong:#ff4e00; /* hover·글로우 */
+  --brand-soft:#ff8a4d;   /* 밝은 액센트 */
+  --brand-tint:rgba(254,103,33,.14);
+  --brand-line:rgba(254,103,33,.42);
+
+  /* ── Semantic ── */
+  --pos:#37D9A0; --pos-tint:rgba(55,217,160,.14);
+  --neg:#FF5D5D; --neg-tint:rgba(255,93,93,.14);
+
+  /* ── Radius ── */
+  --r-sm:10px; --r-md:14px; --r-lg:20px; --r-xl:28px; --r-full:999px;
+
+  /* ── Elevation (다크: 그림자 + 라인) ── */
+  --sh-sm:0 1px 2px rgba(0,0,0,.5);
+  --sh-md:0 8px 24px rgba(0,0,0,.55);
+  --sh-lg:0 20px 48px rgba(0,0,0,.7);
+  --glow:0 8px 30px rgba(255,78,0,.35);
+  --sh-card:0 6px 20px rgba(0,0,0,.55), 0 1px 2px rgba(0,0,0,.6), inset 0 1px 0 rgba(255,255,255,.04);
+
+  --ease:cubic-bezier(.2,.8,.2,1);
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html{scroll-behavior:smooth}
+body{
+  font-family:'Pretendard',sans-serif;background:var(--bg);color:var(--t-1);
+  -webkit-font-smoothing:antialiased;line-height:1.5;
+}
+.mono{font-family:'IBM Plex Mono',monospace}
+
+/* ─────────────── 갤러리 크롬 ─────────────── */
+.topbar{
+  position:sticky;top:0;z-index:50;background:rgba(12,12,12,.8);backdrop-filter:blur(16px);
+  border-bottom:1px solid var(--line);
+}
+.topbar__in{max-width:1120px;margin:0 auto;padding:14px 24px;display:flex;align-items:center;gap:16px;flex-wrap:wrap}
+.brandline{display:flex;align-items:center;gap:9px;font-weight:800;letter-spacing:-.02em;color:var(--t-hi)}
+.brandline .dot{width:26px;height:26px}
+.navpills{display:flex;gap:6px;margin-left:auto;flex-wrap:wrap}
+.navpills a{
+  font-size:12.5px;font-weight:600;color:var(--t-3);padding:7px 12px;border-radius:var(--r-full);
+  border:1px solid transparent;transition:.15s;
+}
+.navpills a:hover{color:var(--t-hi);background:var(--surface);border-color:var(--line-strong)}
+
+.wrap{max-width:1120px;margin:0 auto;padding:0 24px}
+section{padding:72px 0;border-bottom:1px solid var(--line)}
+.eyebrow{font-family:'IBM Plex Mono',monospace;font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:var(--brand);font-weight:600;margin-bottom:14px}
+.h-sec{font-size:34px;font-weight:800;letter-spacing:-.03em;color:var(--t-hi);line-height:1.15}
+.sub{color:var(--t-2);font-size:16px;margin-top:12px;max-width:620px;line-height:1.65}
+
+/* ─────────────── 커버 ─────────────── */
+.cover{padding:92px 0 76px;position:relative;overflow:hidden}
+.cover::before{content:"";position:absolute;top:-160px;left:-120px;width:520px;height:520px;border-radius:50%;
+  background:radial-gradient(circle,rgba(255,78,0,.18),transparent 68%);pointer-events:none;filter:blur(8px)}
+.cover h1{font-size:58px;font-weight:800;letter-spacing:-.045em;line-height:1.04;color:var(--t-hi);position:relative}
+.cover h1 .amber{color:var(--brand);text-shadow:0 0 40px rgba(255,78,0,.4)}
+.cover .lead{font-size:19px;color:var(--t-2);margin-top:22px;max-width:640px;line-height:1.6;position:relative}
+.metastrip{display:flex;gap:10px;flex-wrap:wrap;margin-top:30px;position:relative}
+.chip-meta{font-family:'IBM Plex Mono',monospace;font-size:12px;color:var(--t-2);background:var(--surface);border:1px solid var(--line-strong);
+  padding:8px 13px;border-radius:var(--r-full)}
+.chip-meta b{color:var(--t-hi)}
+
+/* 방향 카드 3 */
+.dir3{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-top:44px}
+.dircard{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-lg);padding:24px;box-shadow:var(--sh-card);transition:.2s}
+.dircard:hover{border-color:var(--brand-line);transform:translateY(-3px)}
+.dircard .n{font-family:'IBM Plex Mono',monospace;color:var(--brand);font-size:13px;font-weight:600}
+.dircard h3{font-size:18px;margin:12px 0 8px;letter-spacing:-.02em;color:var(--t-hi)}
+.dircard p{color:var(--t-2);font-size:14.5px;line-height:1.6}
+
+/* ─────────────── 컬러 ─────────────── */
+.swatches{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:14px}
+.swatch{border-radius:var(--r-md);overflow:hidden;border:1px solid var(--line);background:var(--surface)}
+.swatch .chip{height:78px}
+.swatch .meta{padding:11px 13px}
+.swatch .name{font-size:13px;font-weight:700;color:var(--t-1)}
+.swatch .hex{font-family:'IBM Plex Mono',monospace;font-size:11.5px;color:var(--t-3);margin-top:3px;text-transform:uppercase}
+.rolebar{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:26px}
+.rolebar .r{font-size:13px;color:var(--t-2);background:var(--surface);border:1px solid var(--line);padding:9px 14px;border-radius:var(--r-full)}
+.rolebar .r i{display:inline-block;width:11px;height:11px;border-radius:50%;margin-right:7px;vertical-align:-1px}
+.cap{font-size:12.5px;font-weight:700;color:var(--t-3);letter-spacing:.02em}
+
+/* ─────────────── 타이포 ─────────────── */
+.typerow{display:flex;align-items:baseline;gap:20px;padding:16px 0;border-bottom:1px solid var(--line)}
+.typerow .tag{font-family:'IBM Plex Mono',monospace;font-size:12px;color:var(--t-3);width:150px;flex:0 0 150px}
+.d1{font-size:40px;font-weight:800;letter-spacing:-.035em;color:var(--t-hi)}
+.t1{font-size:24px;font-weight:800;letter-spacing:-.02em;color:var(--t-hi)}
+.t2{font-size:19px;font-weight:700;letter-spacing:-.01em;color:var(--t-1)}
+.b1{font-size:16px;font-weight:500;color:var(--t-1)}
+.b2{font-size:14px;font-weight:500;color:var(--t-2)}
+.capt{font-size:12.5px;font-weight:600;color:var(--t-3)}
+.num{font-size:22px;font-weight:800;font-feature-settings:"tnum";letter-spacing:-.02em;color:var(--brand)}
+
+/* ─────────────── 스케일/토큰 ─────────────── */
+.tokgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:16px}
+.tok{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-md);padding:18px}
+.tok .demo{height:56px;display:flex;align-items:center;justify-content:center;margin-bottom:12px;background:var(--surface-2);color:var(--t-3);border:1px solid var(--line);font-family:'IBM Plex Mono',monospace;font-size:12px}
+.tok .k{font-weight:700;font-size:14px;color:var(--t-1)}
+.tok .v{font-family:'IBM Plex Mono',monospace;font-size:12px;color:var(--t-3);margin-top:2px}
+.elev{display:grid;grid-template-columns:repeat(3,1fr);gap:22px}
+.elevcard{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-lg);height:96px;display:flex;align-items:center;justify-content:center;font-family:'IBM Plex Mono',monospace;font-size:12px;color:var(--t-3)}
+
+/* ─────────────── 아이콘 ─────────────── */
+.iconrow{display:grid;grid-template-columns:repeat(auto-fill,minmax(96px,1fr));gap:14px}
+.iconcell{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-md);padding:18px 10px;text-align:center}
+.iconcell svg{width:26px;height:26px;color:var(--t-1)}
+.iconcell .l{font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--t-3);margin-top:10px}
+
+/* ─────────────── 컴포넌트 캔버스 ─────────────── */
+.comp{display:grid;grid-template-columns:1fr 1fr;gap:20px}
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-lg);padding:20px 22px;box-shadow:var(--sh-card)}
+.panel h4{font-size:13px;font-family:'IBM Plex Mono',monospace;letter-spacing:.06em;text-transform:uppercase;color:var(--t-3);margin-bottom:18px}
+.stack{display:flex;flex-direction:column;gap:12px}
+.inline{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+
+/* buttons */
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;border:0;cursor:pointer;
+  font-family:inherit;font-weight:700;border-radius:var(--r-md);transition:transform .12s var(--ease),background .15s,box-shadow .2s;}
+.btn:active{transform:scale(.975)}
+.btn--lg{height:54px;padding:0 22px;font-size:16px;width:100%}
+.btn--md{height:44px;padding:0 18px;font-size:14.5px}
+.btn--sm{height:34px;padding:0 14px;font-size:13px}
+.btn--primary{background:var(--brand);color:#180a02}
+.btn--primary:hover{background:var(--brand-strong);box-shadow:var(--glow)}
+.btn--soft{background:var(--brand-tint);color:var(--brand-soft)}
+.btn--neutral{background:rgba(255,255,255,.08);color:var(--t-1);border:1px solid var(--line-strong)}
+.btn--ghost{background:transparent;color:var(--t-2)}
+.btn--pos{background:var(--pos-tint);color:var(--pos)}
+.btn[disabled]{background:rgba(255,255,255,.06);color:var(--t-4);cursor:not-allowed;box-shadow:none}
+
+/* chips / filter */
+.chips{display:flex;gap:8px;flex-wrap:wrap}
+.chip{font-size:13.5px;font-weight:600;padding:7px 14px;border-radius:var(--r-full);cursor:pointer;
+  background:rgba(255,255,255,.06);color:var(--t-2);border:1px solid var(--line);transition:.15s}
+.chip[aria-pressed="true"]{background:var(--brand);color:#180a02;border-color:var(--brand)}
+
+/* fields */
+.field{display:flex;flex-direction:column;gap:7px}
+.field label{font-size:13px;font-weight:600;color:var(--t-2)}
+.inp{height:52px;padding:0 16px;border-radius:var(--r-md);border:1.5px solid var(--line-strong);background:var(--surface-2);
+  font-size:15.5px;font-family:inherit;color:var(--t-hi);transition:border-color .15s,box-shadow .15s}
+.inp::placeholder{color:var(--t-4)}
+.inp:focus{outline:none;border-color:var(--brand);box-shadow:0 0 0 4px rgba(254,103,33,.18)}
+
+/* list rows */
+.lrow{display:flex;align-items:center;gap:14px;padding:15px 4px;border-bottom:1px solid var(--line)}
+.lrow:last-child{border-bottom:0}
+.lrow .ic{width:40px;height:40px;flex:0 0 40px;border-radius:12px;background:var(--brand-tint);display:flex;align-items:center;justify-content:center;color:var(--brand)}
+.lrow .ic svg{width:20px;height:20px}
+.lrow .tt{font-size:15px;font-weight:600;color:var(--t-hi)}
+.lrow .ss{font-size:13px;color:var(--t-3);margin-top:2px}
+.lrow .rt{margin-left:auto;font-weight:700;color:var(--t-1);font-size:15px}
+.lrow .chev{margin-left:auto;color:var(--t-4)}
+
+/* badges */
+.badge{font-size:12px;font-weight:700;padding:5px 11px;border-radius:var(--r-full);display:inline-flex;gap:5px;align-items:center}
+.badge--open{background:var(--pos-tint);color:var(--pos)}
+.badge--closed{background:rgba(255,255,255,.06);color:var(--t-3)}
+.badge--time{background:var(--brand-tint);color:var(--brand-soft)}
+.badge--new{background:rgba(255,255,255,.08);color:var(--t-1)}
+
+/* toast */
+.toast{background:var(--elevated);color:#fff;border:1px solid var(--line-strong);border-radius:var(--r-md);padding:14px 16px;font-size:14px;font-weight:500;
+  display:flex;gap:10px;align-items:center;box-shadow:var(--sh-lg)}
+.toast .ok{color:var(--pos)}
+
+/* access pass (지역 이용권) */
+.pass{background:var(--surface);border:1px solid var(--brand-line);border-radius:var(--r-lg);padding:16px 18px;box-shadow:var(--sh-card);position:relative;overflow:hidden}
+.pass::after{content:"";position:absolute;right:-34px;top:-34px;width:130px;height:130px;border-radius:50%;background:radial-gradient(circle,rgba(255,78,0,.2),transparent 70%);pointer-events:none}
+.pass .pk{font-size:12px;font-weight:700;color:var(--brand);letter-spacing:.02em}
+.pass .pt{font-size:17px;font-weight:800;color:var(--t-hi);margin:6px 0 3px}
+.pass .pm{font-size:13px;color:var(--t-3)}
+.pass .pd{position:absolute;right:16px;bottom:14px;font-size:13px;font-weight:800;color:var(--brand)}
+
+/* visitor banner (방문자 모드) */
+.vbanner{display:flex;gap:10px;align-items:center;background:var(--brand-tint);border:1px solid var(--brand-line);border-radius:var(--r-md);padding:11px 13px;font-size:13px;color:var(--brand-soft);font-weight:600}
+.vbanner svg{width:18px;height:18px;flex:0 0 18px}
+.vbanner b{color:#fff}
+
+/* region switch bar (지역 전환) */
+.regionbar{display:flex;gap:7px;align-items:center;margin-bottom:12px;overflow-x:auto}
+.rchip{white-space:nowrap;font-size:12.5px;font-weight:700;padding:6px 12px;border-radius:var(--r-full);background:rgba(255,255,255,.06);color:var(--t-2);border:1px solid var(--line);cursor:pointer;display:flex;align-items:center;gap:5px}
+.rchip[aria-pressed="true"]{background:var(--brand);color:#180a02;border-color:var(--brand)}
+.rchip--pass{border-color:var(--brand-line);color:var(--brand-soft)}
+.rchip--add{color:var(--t-3)}
+
+/* map & pins (메인 지도) */
+.minimap{position:relative;height:154px;border-radius:var(--r-md);overflow:hidden;border:1px solid var(--line);
+  background:
+    linear-gradient(rgba(255,255,255,.035) 1px,transparent 1px) 0 0/26px 26px,
+    linear-gradient(90deg,rgba(255,255,255,.035) 1px,transparent 1px) 0 0/26px 26px,
+    radial-gradient(130% 120% at 32% 22%,#17130f 0%,#0a0a0a 62%);}
+.mpin{position:absolute;transform:translate(-50%,-50%)}
+.mpin--live{width:15px;height:15px;border-radius:50%;background:var(--brand);
+  box-shadow:0 0 0 4px rgba(254,103,33,.22),0 0 18px 4px rgba(255,78,0,.75);animation:pulse 2.2s var(--ease) infinite}
+.mpin--dim{width:11px;height:11px;border-radius:50%;background:#3a3a3a;border:1px solid rgba(255,255,255,.18)}
+@keyframes pulse{0%,100%{box-shadow:0 0 0 4px rgba(254,103,33,.22),0 0 14px 3px rgba(255,78,0,.6)}50%{box-shadow:0 0 0 6px rgba(254,103,33,.10),0 0 22px 6px rgba(255,78,0,.85)}}
+.mlegend{display:flex;gap:16px;margin-top:12px;font-size:12.5px;color:var(--t-2);flex-wrap:wrap}
+.mlegend i{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:6px;vertical-align:0}
+
+/* ─────────────── 화면 프리뷰 (폰) ─────────────── */
+.screens{display:flex;gap:34px;flex-wrap:wrap;justify-content:center;align-items:flex-start}
+.phone{width:340px;flex:0 0 340px}
+.phone .pcap{font-family:'IBM Plex Mono',monospace;text-align:center;color:var(--t-3);margin-bottom:14px;font-size:12px}
+.device{border-radius:42px;padding:11px;background:#1c1c1c;border:1px solid var(--line-strong);box-shadow:var(--sh-lg)}
+.viewport{border-radius:33px;overflow:hidden;height:680px;display:flex;flex-direction:column;position:relative;background:var(--bg)}
+.statusbar{height:34px;flex:0 0 34px;display:flex;align-items:center;justify-content:space-between;padding:0 20px;font-size:12px;font-weight:700;color:var(--t-hi)}
+
+/* app bar */
+.appbar{height:52px;flex:0 0 52px;display:flex;align-items:center;gap:9px;padding:0 18px;background:var(--bg);border-bottom:1px solid var(--line)}
+.appbar .title{font-size:17px;font-weight:800;letter-spacing:-.02em;display:flex;align-items:center;gap:7px;color:var(--t-hi)}
+.appbar .citytag{margin-left:auto;font-size:12.5px;font-weight:700;color:var(--brand);background:var(--brand-tint);padding:6px 11px;border-radius:var(--r-full)}
+.appbar .back{font-size:22px;color:var(--t-1);background:none;border:0;cursor:pointer}
+
+.scr{flex:1;overflow:hidden;padding:16px;background:var(--bg)}
+
+/* meetup card */
+.mcard{background:var(--surface);border-radius:var(--r-lg);padding:18px;box-shadow:var(--sh-card);margin-bottom:13px;border:1px solid var(--line);transition:.2s}
+.mcard:hover{border-color:var(--brand-line)}
+.mcard .top{display:flex;justify-content:space-between;align-items:flex-start;gap:10px;margin-bottom:11px}
+.mcard .mt{font-size:16.5px;font-weight:800;letter-spacing:-.02em;line-height:1.32;color:var(--t-hi)}
+.mcard .venue{display:flex;align-items:center;gap:7px;color:var(--t-2);font-size:13.5px;font-weight:600;margin-bottom:12px}
+.mcard .venue svg{width:15px;height:15px;color:var(--brand)}
+.mcard .foot{display:flex;align-items:center;justify-content:space-between;padding-top:12px;border-top:1px solid var(--line)}
+.mcard .fee{font-size:16px;font-weight:800;color:var(--t-hi)}
+.mcard .fee small{font-size:11.5px;font-weight:600;color:var(--t-3);display:block;margin-top:1px}
+.cap-ind{display:flex;flex-direction:column;align-items:flex-end;gap:5px}
+.cap-ind .txt{font-size:12px;font-weight:700;color:var(--t-2)}
+.bar{width:64px;height:5px;border-radius:99px;background:rgba(255,255,255,.1);overflow:hidden}
+.bar i{display:block;height:100%;background:var(--brand);border-radius:99px}
+
+/* tab bar */
+.tabbar{height:62px;flex:0 0 62px;display:flex;background:var(--bg);border-top:1px solid var(--line)}
+.tab{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;color:var(--t-4);font-size:10.5px;font-weight:600;background:none;border:0;cursor:pointer}
+.tab svg{width:22px;height:22px}
+.tab.on{color:var(--brand)}
+
+/* dark gate (진입) */
+.gate{flex:1;background:radial-gradient(120% 78% at 50% 8%,#201310 0%,var(--bg-deep) 58%);color:#fff;display:flex;flex-direction:column;
+  align-items:center;justify-content:center;text-align:center;padding:34px 30px;position:relative;overflow:hidden}
+.gate::before{content:"";position:absolute;inset:0;background:radial-gradient(280px 210px at 50% 32%,rgba(255,78,0,.22),transparent 70%);pointer-events:none}
+.gate .keymark{width:60px;height:76px;margin-bottom:26px;color:var(--brand);filter:drop-shadow(0 0 30px rgba(255,78,0,.65))}
+.gate h2{font-size:27px;font-weight:800;letter-spacing:-.03em;line-height:1.28;position:relative;color:#fff}
+.gate h2 .em{color:var(--brand);text-shadow:0 0 30px rgba(255,78,0,.5)}
+.gate p{color:var(--t-2);font-size:14.5px;line-height:1.7;margin:16px 0 30px;max-width:250px;position:relative}
+
+/* detail bits */
+.dtitle{font-size:23px;font-weight:800;letter-spacing:-.025em;line-height:1.3;margin:6px 0 14px;color:var(--t-hi)}
+.hl{background:var(--brand-tint);border:1px solid var(--brand-line);border-radius:var(--r-md);padding:14px 15px;display:flex;gap:11px;align-items:flex-start;margin:16px 0}
+.hl svg{width:20px;height:20px;color:var(--brand);flex:0 0 20px;margin-top:1px}
+.hl .t{font-size:13.5px;color:var(--brand-soft);font-weight:600;line-height:1.55}
+.hl .t b{color:#fff}
+.cta-dock{position:absolute;left:0;right:0;bottom:0;padding:14px 16px 18px;background:linear-gradient(transparent,var(--bg) 26%)}
+
+/* ─────────────── 데스크톱 레이아웃 ─────────────── */
+.layout{display:flex;gap:24px;justify-content:center;background:var(--bg-deep);border:1px solid var(--line);border-radius:var(--r-lg);padding:26px}
+.rail{width:150px;flex:0 0 150px;min-height:300px;border:1.5px dashed var(--line-strong);border-radius:var(--r-md);
+  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;color:var(--t-3);background:var(--surface)}
+.rail .adtag{font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:.1em;color:var(--t-4)}
+.rail .adt{font-size:13px;font-weight:700;color:var(--t-2);text-align:center;padding:0 12px}
+.centercol{width:300px;flex:0 0 300px;background:var(--bg);border:1px solid var(--line-strong);border-radius:var(--r-lg);
+  min-height:300px;display:flex;flex-direction:column;overflow:hidden;box-shadow:var(--sh-md)}
+.centercol .mini-appbar{padding:14px 16px;font-weight:800;border-bottom:1px solid var(--line);font-size:14px;display:flex;align-items:center;gap:6px;color:var(--t-hi)}
+.centercol .mini-body{padding:14px;color:var(--t-3);font-size:13px;flex:1}
+.centercol .mini-tab{height:44px;border-top:1px solid var(--line);display:flex;align-items:center;justify-content:space-around;color:var(--t-4)}
+.note-bp{margin-top:16px;color:var(--t-2);font-size:13.5px;line-height:1.6}
+.note-bp code{font-family:'IBM Plex Mono',monospace;background:var(--surface);border:1px solid var(--line-strong);padding:1px 6px;border-radius:6px;font-size:12px;color:var(--brand-soft)}
+
+footer{padding:56px 0 80px;color:var(--t-3);font-size:13.5px;line-height:1.7}
+footer b{color:var(--t-1)}
+
+@media(max-width:900px){
+  .comp,.dir3{grid-template-columns:1fr}
+  .cover h1{font-size:40px}
+  .h-sec{font-size:27px}
+  .layout .rail{display:none}
+}
+@keyframes rise{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
+.reveal>*{animation:rise .5s var(--ease) both}
+.reveal>*:nth-child(2){animation-delay:.05s}
+.reveal>*:nth-child(3){animation-delay:.1s}
+</style>
+</head>
+<body>
+
+<!-- 키홀핀 심볼 -->
+<svg width="0" height="0" style="position:absolute"><defs>
+<symbol id="keypin" viewBox="0 0 24 32">
+  <path d="M12 1C6 1 1.5 5.4 1.5 11.2 1.5 19 12 31 12 31s10.5-12 10.5-19.8C22.5 5.4 18 1 12 1Z" fill="none" stroke="currentColor" stroke-width="2"/>
+  <circle cx="12" cy="10.5" r="2.7" fill="currentColor"/>
+  <path d="M12 12.8 10.8 16.6h2.4L12 12.8Z" fill="currentColor"/>
+</symbol></defs></svg>
+
+<!-- 상단 -->
+<header class="topbar"><div class="topbar__in">
+  <div class="brandline"><svg class="dot" style="color:var(--brand)"><use href="#keypin"/></svg>언더그라운드맵 · 디자인 시스템</div>
+  <nav class="navpills">
+    <a href="#dir">방향</a><a href="#color">컬러</a><a href="#type">타이포</a>
+    <a href="#token">토큰</a><a href="#icon">아이콘</a><a href="#comp">컴포넌트</a>
+    <a href="#screens">화면</a><a href="#layout">레이아웃</a>
+  </nav>
+</div></header>
+
+<!-- 커버 -->
+<div class="wrap cover reveal">
+  <div class="eyebrow">Design System · v0.2 · Dark</div>
+  <h1>토스처럼 깔끔하게,<br><span class="amber">지하처럼 은밀하게.</span></h1>
+  <p class="lead">기본은 검정, 글씨는 흰색, 강조는 주황 하나. 토스의 신뢰 문법(넉넉한 여백·또렷한 위계·큰 볼드 타이포·둥근 폼)을 그대로 두고 색만 '언더그라운드'로 뒤집었습니다.</p>
+  <div class="metastrip">
+    <span class="chip-meta">Base <b>Black #0C0C0C</b></span>
+    <span class="chip-meta">Text <b>White</b></span>
+    <span class="chip-meta">Primary <b>Orange #FE6721</b></span>
+    <span class="chip-meta">Type <b>Pretendard</b></span>
+    <span class="chip-meta">Gating <b>지역(서울=구)</b></span>
+    <span class="chip-meta">Main <b>다크 지도 + 핀</b></span>
+  </div>
+</div>
+
+<!-- 방향 -->
+<section id="dir"><div class="wrap">
+  <div class="eyebrow">Direction</div>
+  <h2 class="h-sec">3가지 디자인 원칙</h2>
+  <div class="dir3">
+    <div class="dircard"><div class="n">01</div><h3>또렷한 위계</h3><p>한 화면에 강조는 하나. 흰 볼드 제목 → 흐린 회색 본문으로 시선을 계단처럼 내린다. 구획은 선보다 어둠의 농도(#0c0c0c → #161616)로 나눈다.</p></div>
+    <div class="dircard"><div class="n">02</div><h3>손끝의 신뢰</h3><p>52px 이상 큰 터치 타깃, 부드러운 라운드(14–20px). 누르면 살짝 눌리는 스프링 모션과 주황 글로우로 "반응한다"는 안심을 준다.</p></div>
+    <div class="dircard"><div class="n">03</div><h3>지하의 온도</h3><p>차가운 검정 위에 주황 하나로 온기를 켠다. 등불 하나 켜진 아지트처럼 — 강조색은 아껴 쓸수록 뜨거워진다. 진입 게이트에서 그 불이 처음 켜진다.</p></div>
+  </div>
+</div></section>
+
+<!-- 컬러 -->
+<section id="color"><div class="wrap">
+  <div class="eyebrow">Foundations · Color</div>
+  <h2 class="h-sec">컬러 토큰</h2>
+  <p class="sub">면적의 대부분은 검정·회백. 주황은 CTA와 강조에만 '불씨'처럼 찍는다. 남발하면 온기가 죽는다.</p>
+
+  <div class="rolebar" style="margin-top:34px">
+    <span class="r"><i style="background:#fe6721"></i>Primary — CTA·강조</span>
+    <span class="r"><i style="background:#37D9A0"></i>Positive — 모집중·완료</span>
+    <span class="r"><i style="background:#FF5D5D"></i>Negative — 마감·경고</span>
+    <span class="r"><i style="background:#050505;border:1px solid rgba(255,255,255,.3)"></i>Ink — 게이트 최심부</span>
+  </div>
+
+  <h3 class="cap" style="margin:8px 0 12px">BRAND · ORANGE</h3>
+  <div class="swatches">
+    <div class="swatch"><div class="chip" style="background:#ff4e00"></div><div class="meta"><div class="name">brand-strong · glow</div><div class="hex">#FF4E00</div></div></div>
+    <div class="swatch"><div class="chip" style="background:#fe6721"></div><div class="meta"><div class="name">brand · Primary</div><div class="hex">#FE6721</div></div></div>
+    <div class="swatch"><div class="chip" style="background:#ff8a4d"></div><div class="meta"><div class="name">brand-soft · accent</div><div class="hex">#FF8A4D</div></div></div>
+    <div class="swatch"><div class="chip" style="background:rgba(254,103,33,.14)"></div><div class="meta"><div class="name">brand-tint</div><div class="hex">14% #FE6721</div></div></div>
+  </div>
+
+  <h3 class="cap" style="margin:26px 0 12px">INK · SURFACE · TEXT</h3>
+  <div class="swatches">
+    <div class="swatch"><div class="chip" style="background:#050505"></div><div class="meta"><div class="name">bg-deep</div><div class="hex">#050505</div></div></div>
+    <div class="swatch"><div class="chip" style="background:#0c0c0c;border-bottom:1px solid var(--line)"></div><div class="meta"><div class="name">bg · 캔버스</div><div class="hex">#0C0C0C</div></div></div>
+    <div class="swatch"><div class="chip" style="background:#161616"></div><div class="meta"><div class="name">surface · 카드</div><div class="hex">#161616</div></div></div>
+    <div class="swatch"><div class="chip" style="background:#1e1e1e"></div><div class="meta"><div class="name">surface-2 · 인풋</div><div class="hex">#1E1E1E</div></div></div>
+    <div class="swatch"><div class="chip" style="background:#ffffff"></div><div class="meta"><div class="name">t-hi · 제목</div><div class="hex">#FFFFFF</div></div></div>
+    <div class="swatch"><div class="chip" style="background:rgba(255,255,255,.66)"></div><div class="meta"><div class="name">t-2 · 본문</div><div class="hex">66% white</div></div></div>
+    <div class="swatch"><div class="chip" style="background:rgba(255,255,255,.44)"></div><div class="meta"><div class="name">t-3 · 캡션</div><div class="hex">44% white</div></div></div>
+    <div class="swatch"><div class="chip" style="background:rgba(255,255,255,.09);border-bottom:1px solid var(--line)"></div><div class="meta"><div class="name">line · 보더</div><div class="hex">9% white</div></div></div>
+  </div>
+
+  <h3 class="cap" style="margin:26px 0 12px">SEMANTIC</h3>
+  <div class="swatches">
+    <div class="swatch"><div class="chip" style="background:#37D9A0"></div><div class="meta"><div class="name">positive</div><div class="hex">#37D9A0</div></div></div>
+    <div class="swatch"><div class="chip" style="background:#FF5D5D"></div><div class="meta"><div class="name">negative</div><div class="hex">#FF5D5D</div></div></div>
+  </div>
+</div></section>
+
+<!-- 타이포 -->
+<section id="type"><div class="wrap">
+  <div class="eyebrow">Foundations · Type</div>
+  <h2 class="h-sec">타이포그래피</h2>
+  <p class="sub">Pretendard 단일 서체. 검정 위에서 흰 굵기·크기·불투명도로 위계를 만든다. 숫자(참가비·정원)는 주황으로 시선을 잡는다.</p>
+  <div style="margin-top:30px">
+    <div class="typerow"><span class="tag">Display / 800</span><span class="d1">이 도시의 지도가 열렸어요</span></div>
+    <div class="typerow"><span class="tag">Title 1 / 800</span><span class="t1">곧 열리는 우리 동네 모임</span></div>
+    <div class="typerow"><span class="tag">Title 2 / 700</span><span class="t2">데드타임 뜨개모임</span></div>
+    <div class="typerow"><span class="tag">Body 1 / 500</span><span class="b1">혼자 뜨던 뜨개, 비어 있는 오후 3시 버거펍에서 같이.</span></div>
+    <div class="typerow"><span class="tag">Body 2 / 500</span><span class="b2">초보 환영, 도구는 매장에서 대여해요.</span></div>
+    <div class="typerow"><span class="tag">Caption / 600</span><span class="capt">오후 3–5시 · 식스티즈 홍대본점</span></div>
+    <div class="typerow"><span class="tag">Numeric / 800</span><span class="num">8,000원 · 정원 3/8</span></div>
+  </div>
+</div></section>
+
+<!-- 토큰 -->
+<section id="token"><div class="wrap">
+  <div class="eyebrow">Foundations · Tokens</div>
+  <h2 class="h-sec">라운드 · 여백 · 그림자</h2>
+  <h3 class="cap" style="margin:30px 0 12px">RADIUS</h3>
+  <div class="tokgrid">
+    <div class="tok"><div class="demo" style="border-radius:10px">10</div><div class="k">r-sm</div><div class="v">칩·뱃지 내부</div></div>
+    <div class="tok"><div class="demo" style="border-radius:14px">14</div><div class="k">r-md</div><div class="v">버튼·인풋</div></div>
+    <div class="tok"><div class="demo" style="border-radius:20px">20</div><div class="k">r-lg</div><div class="v">카드·시트</div></div>
+    <div class="tok"><div class="demo" style="border-radius:28px">28</div><div class="k">r-xl</div><div class="v">디바이스·모달</div></div>
+  </div>
+  <h3 class="cap" style="margin:30px 0 12px">SPACING · 4px base</h3>
+  <div class="tokgrid">
+    <div class="tok"><div class="k">4 / 8 / 12</div><div class="v">요소 내부 간격</div></div>
+    <div class="tok"><div class="k">16 / 20</div><div class="v">카드 패딩 · 리스트 간격</div></div>
+    <div class="tok"><div class="k">24 / 32</div><div class="v">섹션 · 화면 여백</div></div>
+    <div class="tok"><div class="k">safe-area</div><div class="v">하단 탭바 + env(safe-area)</div></div>
+  </div>
+  <h3 class="cap" style="margin:30px 0 14px">ELEVATION</h3>
+  <div class="elev">
+    <div class="elevcard" style="box-shadow:var(--sh-sm)">sh-sm · 카드</div>
+    <div class="elevcard" style="box-shadow:var(--sh-md)">sh-md · 떠있는 요소</div>
+    <div class="elevcard" style="box-shadow:var(--glow);border-color:var(--brand-line)">glow · CTA·열림</div>
+  </div>
+</div></section>
+
+<!-- 아이콘 -->
+<section id="icon"><div class="wrap">
+  <div class="eyebrow">Foundations · Icon</div>
+  <h2 class="h-sec">아이콘</h2>
+  <p class="sub">이모지 대신 얇은(1.8px) 라인 아이콘으로 통일. 키홀핀이 브랜드 시그니처 — 잠긴 로컬 지도를 한 형태로.</p>
+  <div class="iconrow" style="margin-top:28px">
+    <div class="iconcell"><svg viewBox="0 0 24 32" fill="none" style="color:var(--brand)"><use href="#keypin"/></svg><div class="l">keypin</div></div>
+    <div class="iconcell"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 21s7-5.6 7-11a7 7 0 1 0-14 0c0 5.4 7 11 7 11Z"/><circle cx="12" cy="10" r="2.4"/></svg><div class="l">pin</div></div>
+    <div class="iconcell"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3.5 2"/></svg><div class="l">clock</div></div>
+    <div class="iconcell"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 9.5 5.5 5h13L20 9.5M4 9.5V19h16V9.5M4 9.5h16M9.5 9.5v4h5v-4"/></svg><div class="l">store</div></div>
+    <div class="iconcell"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M6 8h9a3 3 0 0 1 0 6H8m-2-3h8M6 5h11"/></svg><div class="l">won</div></div>
+    <div class="iconcell"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="9" cy="8" r="3"/><path d="M3 20c0-3.3 2.7-6 6-6s6 2.7 6 6"/><path d="M16 6a3 3 0 0 1 0 6M21 20c0-2.6-1.4-4.4-3-5.3"/></svg><div class="l">users</div></div>
+    <div class="iconcell"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M5 12.5 10 17.5 19.5 7"/></svg><div class="l">check</div></div>
+    <div class="iconcell"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 5v14M5 12h14"/></svg><div class="l">plus</div></div>
+    <div class="iconcell"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="m9 4-6 3v13l6-3 6 3 6-3V4l-6 3-6-3Zm0 0v13m6-10v13"/></svg><div class="l">map</div></div>
+  </div>
+</div></section>
+
+<!-- 컴포넌트 -->
+<section id="comp"><div class="wrap">
+  <div class="eyebrow">Components</div>
+  <h2 class="h-sec">컴포넌트</h2>
+  <p class="sub">실제 화면을 조립할 최소 부품. 누르면 살짝 눌리고 주황 글로우가 번지는 모션으로 실물감을 준다.</p>
+
+  <div class="comp" style="margin-top:30px">
+    <div class="panel">
+      <h4>Buttons</h4>
+      <div class="stack">
+        <button class="btn btn--lg btn--primary">이 모임 신청하기</button>
+        <div class="inline">
+          <button class="btn btn--md btn--soft">호스트 되기</button>
+          <button class="btn btn--md btn--neutral">나중에</button>
+          <button class="btn btn--md btn--pos">모집중</button>
+        </div>
+        <div class="inline">
+          <button class="btn btn--sm btn--primary">신청</button>
+          <button class="btn btn--sm btn--neutral">공유</button>
+          <button class="btn btn--sm btn--ghost">더보기</button>
+          <button class="btn btn--sm" disabled>마감</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h4>Filter Chips</h4>
+      <div class="chips" style="margin-bottom:18px">
+        <button class="chip" aria-pressed="true">전체</button>
+        <button class="chip" aria-pressed="false">취미</button>
+        <button class="chip" aria-pressed="false">로컬</button>
+        <button class="chip" aria-pressed="false">모각작</button>
+        <button class="chip" aria-pressed="false">오후 3–5시</button>
+      </div>
+      <h4 style="margin-top:8px">Badges</h4>
+      <div class="inline">
+        <span class="badge badge--open"><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M5 12.5 10 17.5 19.5 7"/></svg>모집중 3/8</span>
+        <span class="badge badge--closed">마감</span>
+        <span class="badge badge--time">오후 3시</span>
+        <span class="badge badge--new">NEW</span>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h4>Text Fields</h4>
+      <div class="stack">
+        <div class="field"><label>표시 이름</label><input class="inp" placeholder="동네에서 불릴 이름"></div>
+        <div class="field"><label>거주 지역 <span style="color:var(--t-4);font-weight:500">· 서울=구, 그 외=시</span></label><input class="inp" value="마포구" style="border-color:var(--brand);box-shadow:0 0 0 4px rgba(254,103,33,.18)"></div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h4>List Rows</h4>
+      <div style="margin:-4px 0">
+        <div class="lrow"><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 9.5 5.5 5h13L20 9.5M4 9.5V19h16V9.5M4 9.5h16"/></svg></span><div><div class="tt">매장 등록하기</div><div class="ss">유휴 시간·공간을 매물로</div></div><span class="chev">›</span></div>
+        <div class="lrow"><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3.5 2"/></svg></span><div><div class="tt">유휴 시간</div><div class="ss">평일 · 데드타임</div></div><span class="rt">15–17시</span></div>
+        <div class="lrow"><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M6 8h9a3 3 0 0 1 0 6H8m-2-3h8M6 5h11"/></svg></span><div><div class="tt">참가비</div><div class="ss">40%는 매장에 분배</div></div><span class="rt">8,000원</span></div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h4>Meetup Card</h4>
+      <div class="mcard" style="margin:0">
+        <div class="top"><div class="mt">데드타임 뜨개모임</div><span class="badge badge--time">오후 3시</span></div>
+        <div class="venue"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 21s7-5.6 7-11a7 7 0 1 0-14 0c0 5.4 7 11 7 11Z"/><circle cx="12" cy="10" r="2.4"/></svg>식스티즈 홍대본점 · 취미</div>
+        <div class="foot">
+          <div class="fee">8,000원<small>매장 분배 40%</small></div>
+          <div class="cap-ind"><span class="txt">3/8</span><span class="bar"><i style="width:37%"></i></span></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h4>Toast</h4>
+      <div class="stack">
+        <div class="toast"><svg class="ok" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M5 12.5 10 17.5 19.5 7"/></svg>모임을 열었어요!</div>
+        <div class="toast"><span style="color:var(--neg);font-weight:800">!</span>정원이 가득 찼어요.</div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h4>Map &amp; Pins · 메인 지도</h4>
+      <div class="minimap">
+        <span class="mpin mpin--live" style="left:26%;top:38%"></span>
+        <span class="mpin mpin--live" style="left:60%;top:60%"></span>
+        <span class="mpin mpin--dim" style="left:44%;top:24%"></span>
+        <span class="mpin mpin--dim" style="left:76%;top:32%"></span>
+        <span class="mpin mpin--dim" style="left:36%;top:70%"></span>
+      </div>
+      <div class="mlegend">
+        <span><i style="background:var(--brand);box-shadow:0 0 8px rgba(255,78,0,.85)"></i>프로그램 진행중 (호스트 매칭)</span>
+        <span><i style="background:#3a3a3a;border:1px solid rgba(255,255,255,.18)"></i>공간만 대여가능 (호스트 대기)</span>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h4>Access Pass · 지역 이용권</h4>
+      <div class="pass">
+        <div class="pk">정기 이용권 · 90일</div>
+        <div class="pt">강남구 언더그라운드</div>
+        <div class="pm">홈이 아닌 지역을 한시적으로 열람·참여</div>
+        <div class="pd">D-72</div>
+      </div>
+      <p style="margin-top:12px;font-size:12.5px;color:var(--t-3);line-height:1.6">방문자는 <b style="color:var(--t-1)">열람·참여</b>만 · 호스팅/매장은 홈 지역 전용</p>
+    </div>
+
+    <div class="panel">
+      <h4>Visitor Banner · 방문자 모드</h4>
+      <div class="vbanner">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 21s7-5.6 7-11a7 7 0 1 0-14 0c0 5.4 7 11 7 11Z"/><circle cx="12" cy="10" r="2.4"/></svg>
+        <div><b>방문자 모드</b> · 강남구를 이용권으로 보는 중</div>
+      </div>
+      <div class="vbanner" style="margin-top:10px;background:rgba(255,255,255,.05);border-color:var(--line);color:var(--t-2)">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3.5 2"/></svg>
+        <div>이용권 <b>D-6</b> 남음 · 연장하기</div>
+      </div>
+    </div>
+  </div>
+</div></section>
+
+<!-- 화면 프리뷰 -->
+<section id="screens"><div class="wrap">
+  <div class="eyebrow">Screens</div>
+  <h2 class="h-sec">화면에 적용한 모습</h2>
+  <p class="sub">부품을 조립한 실제 화면. 검정 위 주황 하나로 진입(게이트) → 피드 → 상세가 하나의 결로 흐릅니다.</p>
+
+  <div class="screens" style="margin-top:40px">
+    <!-- 1. 게이트 -->
+    <div class="phone">
+      <div class="pcap">01 · 온보딩 (게이트 · 불이 켜지는 순간)</div>
+      <div class="device"><div class="viewport">
+        <div class="statusbar"><span>9:41</span><span>● ● ●</span></div>
+        <div class="gate">
+          <svg class="keymark" viewBox="0 0 24 32" fill="none"><use href="#keypin"/></svg>
+          <h2>이 도시에 사는 사람만 아는<br><span class="em">지하 지도</span></h2>
+          <p>관광객에게는 보이지 않고, 로컬 거주자만 들어올 수 있는 지도.</p>
+          <button class="btn btn--lg btn--primary" style="max-width:250px">시작하기</button>
+        </div>
+      </div></div>
+    </div>
+
+    <!-- 2. 메인 (지도 + 리스트) -->
+    <div class="phone">
+      <div class="pcap">02 · 메인 (다크 지도 + 리스트)</div>
+      <div class="device"><div class="viewport">
+        <div class="statusbar"><span>9:41</span><span>● ● ●</span></div>
+        <div class="appbar"><span class="title"><svg style="width:19px;height:24px;color:var(--brand)" viewBox="0 0 24 32" fill="none"><use href="#keypin"/></svg>언더그라운드맵</span><span class="citytag">📍 마포구 ▾</span></div>
+        <div class="scr" style="overflow-y:auto">
+          <div class="regionbar">
+            <button class="rchip" aria-pressed="true"><span class="pin">📍</span>마포구</button>
+            <button class="rchip rchip--pass">강남구 · 이용권</button>
+            <button class="rchip rchip--add">＋ 다른 지역</button>
+          </div>
+          <div class="minimap" style="margin-bottom:14px">
+            <span class="mpin mpin--live" style="left:30%;top:40%"></span>
+            <span class="mpin mpin--live" style="left:64%;top:58%"></span>
+            <span class="mpin mpin--dim" style="left:47%;top:26%"></span>
+            <span class="mpin mpin--dim" style="left:74%;top:36%"></span>
+            <span class="mpin mpin--dim" style="left:40%;top:72%"></span>
+          </div>
+          <div class="chips" style="margin-bottom:14px"><button class="chip" aria-pressed="true">전체</button><button class="chip">취미</button><button class="chip">로컬</button><button class="chip">3–5시</button></div>
+          <div class="mcard">
+            <div class="top"><div class="mt">데드타임 뜨개모임</div><span class="badge badge--time">7/7 15시</span></div>
+            <div class="venue"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 21s7-5.6 7-11a7 7 0 1 0-14 0c0 5.4 7 11 7 11Z"/><circle cx="12" cy="10" r="2.4"/></svg>식스티즈 홍대본점</div>
+            <div class="foot"><div class="fee">8,000원<small>매장 분배 40%</small></div><div class="cap-ind"><span class="txt">3/8</span><span class="bar"><i style="width:37%"></i></span></div></div>
+          </div>
+          <div class="mcard">
+            <div class="top"><div class="mt">우리 동네 기록 살롱</div><span class="badge badge--time">7/8 15시</span></div>
+            <div class="venue"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 21s7-5.6 7-11a7 7 0 1 0-14 0c0 5.4 7 11 7 11Z"/><circle cx="12" cy="10" r="2.4"/></svg>제로밥상 영등포점</div>
+            <div class="foot"><div class="fee">10,000원<small>매장 분배 30%</small></div><div class="cap-ind"><span class="txt">6/10</span><span class="bar"><i style="width:60%"></i></span></div></div>
+          </div>
+        </div>
+        <div class="tabbar">
+          <button class="tab on"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="m9 4-6 3v13l6-3 6 3 6-3V4l-6 3-6-3Zm0 0v13m6-10v13"/></svg>지도</button>
+          <button class="tab"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 5v14M5 12h14"/></svg>개설</button>
+          <button class="tab"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 9.5 5.5 5h13L20 9.5M4 9.5V19h16V9.5M4 9.5h16"/></svg>매장</button>
+          <button class="tab"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="8" r="3.4"/><path d="M5 20c0-3.5 3-6 7-6s7 2.5 7 6"/></svg>나</button>
+        </div>
+      </div></div>
+    </div>
+
+    <!-- 3. 상세 -->
+    <div class="phone">
+      <div class="pcap">03 · 모임 상세</div>
+      <div class="device"><div class="viewport">
+        <div class="statusbar"><span>9:41</span><span>● ● ●</span></div>
+        <div class="appbar"><button class="back">←</button><span class="title" style="font-size:15px">모임 상세</span></div>
+        <div class="scr" style="overflow-y:auto;padding-bottom:96px">
+          <span class="badge badge--time">7월 7일(화) 오후 3시</span>
+          <div class="dtitle">데드타임 뜨개모임</div>
+          <p class="b2" style="line-height:1.65">혼자 뜨던 뜨개, 비어 있는 오후 3시 버거펍에서 같이. 초보 환영, 도구는 매장에서 대여해요.</p>
+          <div class="hl">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 9.5 5.5 5h13L20 9.5M4 9.5V19h16V9.5M4 9.5h16"/></svg>
+            <div class="t">참가비 8,000원 중 <b>40%(3,200원)</b>는 공간을 내어준 식스티즈 홍대본점에 분배돼요.</div>
+          </div>
+          <div style="margin-top:4px">
+            <div class="lrow"><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 21s7-5.6 7-11a7 7 0 1 0-14 0c0 5.4 7 11 7 11Z"/><circle cx="12" cy="10" r="2.4"/></svg></span><div><div class="tt">식스티즈 홍대본점</div><div class="ss">서울 마포구 홍익로 12</div></div></div>
+            <div class="lrow"><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3.5 2"/></svg></span><div><div class="tt">소요 시간</div></div><span class="rt">120분</span></div>
+            <div class="lrow"><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="9" cy="8" r="3"/><path d="M3 20c0-3.3 2.7-6 6-6s6 2.7 6 6"/></svg></span><div><div class="tt">호스트 · 뜨개하는 지현</div></div><span class="rt">3/8</span></div>
+          </div>
+        </div>
+        <div class="cta-dock"><button class="btn btn--lg btn--primary">이 모임 신청하기</button></div>
+      </div></div>
+    </div>
+  </div>
+</div></section>
+
+<!-- 데스크톱 레이아웃 -->
+<section id="layout"><div class="wrap">
+  <div class="eyebrow">Layout</div>
+  <h2 class="h-sec">데스크톱 = 중앙 앱 + 광고 레일</h2>
+  <p class="sub">앱은 항상 핸드폰 너비 중앙 한 줄. 데스크톱에서 비는 좌우를 광고 레일로 채우고, 모바일에선 숨긴다.</p>
+  <div class="layout" style="margin-top:34px">
+    <div class="rail"><span class="adtag">AD · 300×600</span><span class="adt">오후 3–5시,<br>비어 있는 그 시간</span></div>
+    <div class="centercol">
+      <div class="mini-appbar"><svg style="width:15px;height:19px;color:var(--brand)" viewBox="0 0 24 32" fill="none"><use href="#keypin"/></svg>언더그라운드맵</div>
+      <div class="mini-body">모임 피드 · 상세 · 신청 …<br><br>max-width 480px<br>100dvh 고정, 내부만 스크롤</div>
+      <div class="mini-tab"><span>지도</span><span>개설</span><span>매장</span><span>나</span></div>
+    </div>
+    <div class="rail"><span class="adtag">AD · 300×600</span><span class="adt">하우스 배너<br>→ 애드센스 교체</span></div>
+  </div>
+  <p class="note-bp"><b>브레이크포인트:</b> <code>≥1100px</code> 광고 레일 노출 · <code>&lt;1100px</code> 숨김 · <code>&lt;480px</code> 중앙 컬럼 100%. 인증 게이트(온보딩·로그인·거주인증)에서는 광고 미노출로 첫 불씨를 지킨다.</p>
+</div></section>
+
+<footer><div class="wrap">
+  <div class="brandline" style="margin-bottom:12px"><svg class="dot" style="color:var(--brand)"><use href="#keypin"/></svg>언더그라운드맵 · 일석삼조 (LBD 9기)</div>
+  살아있는 디자인 시스템. 여기서 색·타이포·컴포넌트를 확정한 뒤 <b>assets/css/app.css</b>에 토큰을 이식해 실제 앱에 반영합니다.<br>
+  팔레트 출처: <b>33333.html</b> (검정 #0C0C0C · 주황 #FE6721). 피드백 주시면 이 HTML을 바로 수정해 나가겠습니다. — v0.2 Dark
+</div></footer>
+
+<script>
+document.querySelectorAll('.chips').forEach(group=>{
+  group.querySelectorAll('.chip').forEach(c=>c.addEventListener('click',()=>{
+    group.querySelectorAll('.chip').forEach(x=>x.setAttribute('aria-pressed','false'));
+    c.setAttribute('aria-pressed','true');
+  }));
+});
+</script>
+</body>
+</html>

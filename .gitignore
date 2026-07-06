@@ -1,0 +1,16 @@
+# ── 시크릿 / 환경설정 (절대 커밋 금지) ──
+config.js
+.env
+.env.*
+*.local
+
+# ── OS / 에디터 ──
+.DS_Store
+Thumbs.db
+desktop.ini
+.vscode/
+.idea/
+
+# ── 로그 / 임시 ──
+*.log
+node_modules/
