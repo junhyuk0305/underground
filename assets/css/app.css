@@ -490,3 +490,50 @@ a{color:inherit;text-decoration:none}
 .ctxrow{display:flex;justify-content:space-between;gap:10px;align-items:baseline;padding:10px 12px;background:var(--surface-2);border:1px solid var(--line);border-radius:var(--r-md)}
 .ctxrow b{color:var(--brand-soft);font-size:13px;font-weight:800;white-space:nowrap}
 .ctxrow span{font-size:12px;color:var(--t-2);text-align:right}
+.quotes{display:flex;flex-direction:column;gap:8px}
+.quote{padding:11px 13px;background:var(--surface-2);border:1px solid var(--line);border-radius:var(--r-md);font-size:13px;line-height:1.6;color:var(--t-1)}
+.quote__tag{display:inline-block;margin-right:8px;padding:2px 8px;border-radius:999px;background:rgba(254,103,33,.14);color:var(--brand-soft);font-size:11px;font-weight:800;vertical-align:middle}
+
+/* ── ⓘ 정보 안내 박스 ── */
+.infobox{background:var(--card2,#151515);border:1px solid var(--line);border-radius:16px;padding:16px 18px;margin-bottom:6px}
+.infobox__hd{display:flex;align-items:center;gap:8px;font-size:15px;font-weight:800;color:var(--t-1,#f4f4f6);margin-bottom:8px}
+.infobox__i{display:inline-flex;align-items:center;justify-content:center;width:20px;height:20px;border-radius:50%;background:rgba(254,103,33,.18);color:var(--brand);font-size:13px;font-weight:900}
+.infobox p{font-size:13.5px;line-height:1.65;color:var(--t-2,#b9b4ac)}
+.infobox b{color:var(--t-1,#f4f4f6);font-weight:700}
+.infobox .steps{display:flex;flex-direction:column;gap:9px;margin:13px 0 4px}
+.infobox .step{display:flex;gap:11px;align-items:flex-start;font-size:13.5px;line-height:1.5;color:var(--t-2,#b9b4ac)}
+.infobox .step__n{flex:0 0 auto;width:22px;height:22px;border-radius:50%;background:var(--brand);color:#160a03;font-size:12px;font-weight:900;display:inline-flex;align-items:center;justify-content:center}
+.infobox__note{margin-top:12px;padding-top:12px;border-top:1px solid var(--line);font-size:13px}
+
+/* ── 다른 동네 홍보 카드 ── */
+.promo{display:flex;align-items:center;gap:14px;background:linear-gradient(150deg,#1a1109,#101010);border:1px solid #2c1c10;border-radius:16px;padding:14px 16px;margin-bottom:10px;cursor:pointer;transition:border-color .15s,transform .08s}
+.promo:hover{border-color:var(--brand)}
+.promo:active{transform:scale(.99)}
+.promo__emo{font-size:30px;line-height:1;flex:0 0 auto}
+.promo__body{flex:1;min-width:0}
+.promo__nm{font-size:15px;font-weight:800;color:var(--t-1,#f4f4f6);display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.promo__live{font-size:11px;font-weight:800;color:var(--brand)}
+.promo__ds{font-size:12.5px;color:var(--t-3,#9a968f);margin-top:3px;line-height:1.4}
+.promo__go{flex:0 0 auto;font-size:12px;font-weight:800;color:var(--brand);white-space:nowrap}
+
+/* ── 좌측 서비스 소개 배너(3자 관계) ── */
+.rel-banner{width:300px;max-width:100%;background:linear-gradient(165deg,#141210,#0b0b0b);border:1px solid #262019;border-radius:20px;padding:24px 22px}
+.rel-brand{font-size:13px;font-weight:800;color:var(--brand);letter-spacing:-.01em}
+.rel-tit{font-size:23px;font-weight:900;line-height:1.28;letter-spacing:-.03em;color:#f4f4f6;margin:10px 0 20px}
+.rel-flow{display:flex;flex-direction:column}
+.rel-node{position:relative;display:flex;gap:12px;align-items:flex-start;background:#151515;border:1px solid #242424;border-radius:14px;padding:14px 14px}
+.rel-node--host{border-color:#3a2413;background:linear-gradient(160deg,#1c1108,#121110)}
+.rel-emo{font-size:26px;line-height:1;flex:0 0 auto}
+.rel-nm{font-size:15px;font-weight:800;color:#f4f4f6}
+.rel-ds{font-size:12px;color:#9a968f;line-height:1.45;margin-top:3px}
+.rel-badge{position:absolute;top:-9px;right:12px;background:var(--brand);color:#160a03;font-size:10px;font-weight:900;padding:2px 8px;border-radius:999px}
+.rel-link{display:flex;align-items:center;gap:8px;padding:5px 0 5px 20px;height:34px}
+.rel-line{width:2px;height:100%;background:linear-gradient(var(--brand),transparent);border-radius:2px}
+.rel-lab{font-size:11px;font-weight:700;color:#8a857d}
+.rel-foot{margin-top:18px;padding-top:15px;border-top:1px solid #242424;font-size:12px;line-height:1.6;color:#b9b4ac}
+.rel-foot b{color:var(--brand)}
+.rel-foot span{color:#7c776f}
+
+/* 하우스 슬롯 보강 */
+.ad-slot__emo{font-size:34px;margin:6px 0 2px}
+.ad-slot__desc{font-size:12.5px;color:var(--t-3,#9a968f);line-height:1.5;margin-top:6px}

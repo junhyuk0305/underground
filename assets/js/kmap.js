@@ -14,17 +14,19 @@ function loadSdk(key){
   return sdkPromise;
 }
 
-/* container 에 카카오맵을 그린다. 성공 true / 실패 false. onPick(venueId) 는 핀 클릭 콜백. */
-export async function mountKakaoMap(container, venues, onPick){
+/* container 에 카카오맵을 그린다. 성공 true / 실패 false. onPick(venueId) 는 핀 클릭 콜백.
+ * opts.center = {lat,lng} 는 매장이 없어도 "거주 지역의 실제 지도"를 그 좌표로 센터링(fallback). */
+export async function mountKakaoMap(container, venues, onPick, opts = {}){
   const key = (window.UG_CONFIG || {}).KAKAO_JS_KEY;
   if (!key || !container) return false;
   const ok = await loadSdk(key).catch(() => false);
   if (!ok || !(window.kakao && window.kakao.maps)) return false;
   try {
     const pts = (venues || []).filter(v => v.lat != null && v.lng != null);
-    const first = pts[0];
+    const rc = opts.center && opts.center.lat != null ? opts.center : null;
+    const first = pts[0] || rc;
     const center = new kakao.maps.LatLng(first ? first.lat : 37.5563, first ? first.lng : 126.9236);
-    const map = new kakao.maps.Map(container, { center, level: 5 });
+    const map = new kakao.maps.Map(container, { center, level: pts.length ? 5 : 6 });
     map.setZoomable(true);
     if (pts.length > 1){
       const b = new kakao.maps.LatLngBounds();

@@ -6,6 +6,7 @@ import { PASS_PRODUCTS, INTEREST_OPTIONS } from './data.js';
 import { renderAds, setAdsVisible } from './ads.js';
 import { mountKakaoMap } from './kmap.js';
 import { RESEARCH_ON, STUDY_BUDGET, STUDY_ROLE, STUDY_CTX, PERSONAS, personaByKey, getStudy, startStudy, startOwnerStudy, resetStudy,
+         saveOwnerIntake, getOwnerIntake, saveWaitlist,
          balance, canAfford, charge, logEvent, endStudy, summary,
          REASON_MEETUP, REASON_PASS, REASON_SKIP } from './research.js';
 
@@ -188,10 +189,11 @@ function screenSplash(){
   el.onclick=skip;
 }
 function nextFromSession(){
-  // 공급(오너) 데모: ?role=owner → 스플래시 후 사장님 센터로 직행 (docs/08 §2)
+  // 공급(오너) 데모: ?role=owner → 스플래시 → 사장님 인테이크 → 사장님 센터 (docs/08 §2)
   if(RESEARCH_ON && STUDY_ROLE==='owner'){
     if(state.session && state.profile?.is_venue_owner){ state.ownerMode=true; return go('#/owner-home'); }
-    return beginOwnerDemo();
+    if(!getOwnerIntake()) return go('#/owner-intake');   // 데모 전 '이 사장이 누구인가' 회수(B)
+    return beginOwnerDemo(getOwnerIntake());
   }
   // 검증(연구) 모드: 세션/거주인증 전이면 페르소나 선택으로 진입
   if(RESEARCH_ON && !getStudy() && !state.profile?.resident_verified) return go('#/study');
@@ -201,20 +203,24 @@ function nextFromSession(){
 }
 /* 공급(오너) 데모 부트스트랩 — 참여자 실험처럼 mock(동일 자극·무마찰)에서 돈다.
  * 세션·거주인증·데모 매장을 준비해 사장님 센터(screenOwnerHome)로 직행하고 owner_demo_start 를 남긴다. */
-async function beginOwnerDemo(){
+async function beginOwnerDemo(intake={}){
   // 오너 계측을 로컬에 남기기 위해 오너 세션 준비(지갑 없음). 참여자 세션이 남아있으면 새로 시작.
-  const cur=getStudy(); if(!cur || cur.role!=='owner'){ resetStudy(); startOwnerStudy(); }
+  const cur=getStudy(); if(!cur || cur.role!=='owner'){ resetStudy(); startOwnerStudy(); if(intake&&Object.keys(intake).length) saveOwnerIntake(intake); }
   // 라이브면 ?mock=1 로 재진입(참여자 beginPersona 와 동일 패턴). 재진입 후 스플래시→여기로 다시 온다.
   if(!IS_MOCK){ const u=new URL(window.location.href); u.searchParams.set('mock','1'); return window.location.replace(u.toString()); }
   try{
+    const region = intake.regionId || 'r_suwon';
     await db.signIn('owner_demo@local');
-    await db.verifyResident({ regionId:'r_suwon', displayName:'데모 사장님', interests:[], bio:'', isHost:false });
+    await db.verifyResident({ regionId:region, displayName:'데모 사장님', interests:[], bio:'', isHost:false });
     await boot();
     const mine = await db.myVenues();
-    if(!mine.length){   // 데모 매장 1곳 등록(요청함·정산이 살아있도록) — seedPendingFor 로 승인 대기 요청도 생김
-      await db.registerVenue({ name:'행궁동 골목책방', category:'책방', address:'수원 팔달구 화서문로 32',
-        capacity:10, idle_days:'평일', idle_start:'15:00', idle_end:'17:00', slot_minutes:120, min_share_pct:30,
-        facilities:['좌식 8석','핸드드립 커피','책 4,000권','스탠드 조명'], program_candidates:['북토크','드로잉 클래스','필사 모임'], house_rules:'' });
+    if(!mine.length){   // 사장님이 입력한 가게 조건으로 데모 매장 1곳 등록 → 요청함·정산·맞춤소개서가 '내 가게' 기준으로 살아난다
+      const cat = intake.category || '책방';
+      const BAND_TIME = { '오전(개점 전)':['09:00','11:00'], '점심 후 오후(데드타임)':['14:00','16:00'], '늦은 오후':['16:00','18:00'], '저녁':['19:00','21:00'], '밤':['21:00','23:00'] };
+      const [is,ie] = BAND_TIME[intake.idleBand] || ['15:00','17:00'];
+      await db.registerVenue({ name: intake.venueName || (regionName(region)+' 우리 가게'), category:cat, address:(regionName(region)+' 일대'),
+        capacity:+intake.capacity||10, idle_days:intake.idleDays||'평일', idle_start:is, idle_end:ie, slot_minutes:120, min_share_pct:30,
+        facilities:OWNER_FACILITY_HINT[cat]||['테이블·좌석','와이파이'], program_candidates:OWNER_PROGRAM_HINT[cat]||['소모임','원데이 클래스'], house_rules:'' });
       await boot();
     }
     state.ownerMode=true;
@@ -382,16 +388,29 @@ async function screenMap(){
       </div>
     </div>`;
   const scope=$screen;
-  scope.querySelectorAll('#vlist [data-v]').forEach(el=>el.onclick=()=>go('#/venue/'+el.dataset.v));
+  const bindVenueTaps=()=>scope.querySelectorAll('#vlist [data-v]').forEach(el=>el.onclick=()=>go('#/venue/'+el.dataset.v));
+  bindVenueTaps();
   scope.querySelectorAll('[data-r]').forEach(el=>el.onclick=()=>{ state.viewRegion=el.dataset.r; screenMap(); });
   scope.querySelector('[data-add]').onclick=()=>go('#/passes');
-  scope.querySelectorAll('#mf button').forEach(el=>el.onclick=(e)=>{ e.stopPropagation(); state.mapFilter=el.dataset.f; screenMap(); });
+  // 필터는 리스트만 교체(시트 재마운트 X) → 매번 슬라이드 애니메이션 재생되던 문제 해결
+  const applyFilter=(nf)=>{
+    state.mapFilter=nf;
+    const fl=venues.filter(v=> nf==='all'?true : nf==='live'?v.live : !v.live);
+    const vlist=scope.querySelector('#vlist');
+    if(vlist) vlist.innerHTML = fl.length?fl.map(venueCard).join(''):`<div class="empty"><div class="ic">🌙</div>${nf==='live'?'지금 진행 중인 모임이 없어요.':nf==='open'?'빈 공간이 없어요. 모두 진행 중이에요.':'이 동네는 아직 조용해요.<br>빈 공간에 첫 불을 켜보실래요?'}</div>`;
+    bindVenueTaps();
+    scope.querySelectorAll('#mf button').forEach(x=>x.setAttribute('aria-selected', x.dataset.f===nf));
+    mountSeg(scope.querySelector('#mf'));
+  };
+  scope.querySelectorAll('#mf button').forEach(el=>el.onclick=(e)=>{ e.stopPropagation(); applyFilter(el.dataset.f); });
   mountSeg(scope.querySelector('#mf'));
   enableDragScroll(scope.querySelector('.regionbar'), 'x');
   mountSheet(scope.querySelector('#sheet'), scope.querySelector('#sheetHead'));
   // 실 지도(카카오) 시도 → 실패 시 스타일라이즈드 다크맵으로 폴백
   const kmapEl=scope.querySelector('#kmap');
-  mountKakaoMap(kmapEl, venues, id=>go('#/venue/'+id)).then(ok=>{
+  const rObj=state.regions.find(r=>r.id===rid);
+  const center = rObj && rObj.lat!=null ? { lat:rObj.lat, lng:rObj.lng } : null;
+  mountKakaoMap(kmapEl, venues, id=>go('#/venue/'+id), { center }).then(ok=>{
     if(ok || !kmapEl) return;
     kmapEl.classList.add('minimap');
     kmapEl.innerHTML=stylizedPins();
@@ -406,11 +425,13 @@ function mountSheet(sheet, head){
   const set = v => { y=v; sheet.style.transform=`translateY(${v}px)`; };
   requestAnimationFrame(()=>set(collapsedY()));
   let down=false, sy=0, base=0, moved=false;
-  head.addEventListener('pointerdown', e=>{ down=true; moved=false; sy=e.clientY; base=y; sheet.classList.add('dragging'); head.setPointerCapture?.(e.pointerId); });
+  // 필터 세그·버튼 등 인터랙티브 컨트롤 위에서 시작한 포인터는 드래그로 가로채지 않는다(클릭 살림).
+  const onControl = e => !!(e.target.closest && e.target.closest('#mf, button, .seg, [data-f]'));
+  head.addEventListener('pointerdown', e=>{ if(onControl(e)) return; down=true; moved=false; sy=e.clientY; base=y; sheet.classList.add('dragging'); head.setPointerCapture?.(e.pointerId); });
   head.addEventListener('pointermove', e=>{ if(!down) return; const dy=e.clientY-sy; if(Math.abs(dy)>4) moved=true; set(Math.min(collapsedY(), Math.max(0, base+dy))); });
   const end=()=>{ if(!down) return; down=false; sheet.classList.remove('dragging');
     const mid=collapsedY()/2; expanded = y<mid; set(expanded?0:collapsedY()); };
-  head.addEventListener('pointerup', e=>{ if(!moved){ expanded=!expanded; set(expanded?0:collapsedY()); down=false; sheet.classList.remove('dragging'); return; } end(); });
+  head.addEventListener('pointerup', e=>{ if(onControl(e)) return; if(!moved){ expanded=!expanded; set(expanded?0:collapsedY()); down=false; sheet.classList.remove('dragging'); return; } end(); });
   head.addEventListener('pointercancel', end);
 }
 function venueCard(v){
@@ -470,8 +491,11 @@ async function screenVenue(id){
       ${facilities}
       <div class="sectitle">이 모임을 여는 사람</div>
       <div class="card" style="cursor:default"><div class="mt" style="font-size:15px">${esc(v.host?.name||m.host_name||'호스트')}</div><p class="hint" style="margin:6px 0">${esc(v.host?.bio||'')}</p><div class="chips">${(v.host?.interests||[]).map(i=>`<span class="chip chip--tag">${esc(i)}</span>`).join('')}</div></div>
+      ${getStudy()?`<button class="btn btn--md btn--soft btn--block" id="interest" style="margin-top:14px">🔔 지금은 아니어도, 이런 모임 뜨면 알려줘요</button>`:''}
       </div>
       <div class="cta-dock"><button class="btn btn--lg btn--primary" id="join" ${full?'disabled':''}>${full?'정원이 찼어요':'이 모임 신청하기'}</button></div>`);
+    const bi=document.getElementById('interest');
+    if(bi) bi.onclick=()=>{ logEvent('meetup_interest',{ target:m.id, category:m.category, track:m.track, fee:m.fee, time_band:m.time_band }); toast('찜! 이런 모임 열리면 알려드릴게요.','ok'); bi.textContent='✓ 알림 신청됨'; bi.disabled=true; };
     const j=document.getElementById('join');
     if(j&&!full) j.onclick=()=>{
       if(getStudy()){   // 검증 모드: 크레딧 차감 + 이유 수집 + 로깅
@@ -591,15 +615,24 @@ async function screenMe(){
       <div class="chips">${(p?.interests||[]).map(i=>`<span class="chip chip--tag">${esc(i)}</span>`).join('')}</div>
     </div>
     ${ownerRow}
-    <div class="lrow lrow--tap" id="toPass">${iconChip(ICON.ticket)}<div><div class="tt">지역 이용권</div><div class="ss">보유 ${active.length}장</div></div><span class="chev">›</span></div>
+    ${getStudy()?.role==='owner'?'':`<div class="lrow lrow--tap" id="toPass">${iconChip(ICON.ticket)}<div><div class="tt">지역 이용권</div><div class="ss">보유 ${active.length}장</div></div><span class="chev">›</span></div>`}
     <div class="divider"></div>
     <button class="btn btn--md btn--neutral btn--block" id="logout">로그아웃</button>
     <p class="hint center" style="margin-top:14px">${IS_MOCK?'체험(mock) 모드 — 데이터는 이 브라우저에만 저장돼요.':'Supabase 연결됨'}</p>`);
   const oo=document.getElementById('toOwner'); if(oo) oo.onclick=()=>{ state.ownerMode=true; go('#/owner-home'); };
   const op=document.getElementById('toParticipant'); if(op) op.onclick=()=>{ state.ownerMode=false; go('#/map'); };
-  document.getElementById('toPass').onclick=()=>go('#/passes');
+  const tp=document.getElementById('toPass'); if(tp) tp.onclick=()=>go('#/passes');
   document.getElementById('logout').onclick=async()=>{ await db.signOut(); state.session=null; state.profile=null; state.viewRegion=null; state.viewable=[]; state.ownerMode=false; go('#/splash'); };
 }
+
+/* 다른 동네 홍보(이용권 유도) — 지금 그 동네에서 뭐가 열리는지 구체적으로 보여준다 */
+const PASS_PROMOS = [
+  { id:'r_seoul-mapo',    emoji:'🎧', live:6, blurb:'연남 골목책방 북토크 · 합정 LP바 감상회 · 망원 드로잉' },
+  { id:'r_seoul-gangnam', emoji:'🍷', live:6, blurb:'언주로 와인 라운지 소셜 · 퇴근 후 북클럽' },
+  { id:'r_seoul-seongdong', emoji:'☕', live:6, blurb:'성수 로스터리 커피 클래스 · 작업카페 모각작' },
+  { id:'r_seoul-jongno',  emoji:'📖', live:6, blurb:'서촌 골목책방 필사 · 익선동 동네 산책' },
+  { id:'r_suwon',         emoji:'🖌️', live:6, blurb:'행궁동 드로잉 · 수원천 로스터리 와인 소셜' },
+];
 
 /* ═══════════ S8 지역 이용권 ═══════════ */
 async function screenPasses(){
@@ -609,22 +642,51 @@ async function screenPasses(){
   const home=homeRegion();
   const heldIds=new Set(passes.filter(p=>!p.expired).map(p=>p.region_id));
   const body=document.getElementById('pBody');
-  const mine = passes.length? passes.map(p=>`<div class="pass"><div class="pd">${p.expired?'만료':'D-'+Math.max(0,Math.ceil((new Date(p.valid_until)-Date.now())/86400000))}</div><div class="pk">${p.kind==='guest'?'단기 방문권':'정기 이용권'}</div><div class="pt">${esc(regionName(p.region_id))} 언더그라운드</div><div class="pm">${p.expired?'만료됨 · 다시 받기':'열람·참여 가능'}</div><button class="btn btn--sm btn--soft" data-see="${p.region_id}" style="margin-top:12px">이 지역 보기</button></div>`).join('') : `<div class="empty" style="padding:26px"><div class="ic">🎟️</div>아직 받은 이용권이 없어요.<br>다른 동네가 궁금하면 아래에서 열어보세요.</div>`;
+  const mine = passes.length? passes.map(p=>`<div class="pass"><div class="pd">${p.expired?'만료':'D-'+Math.max(0,Math.ceil((new Date(p.valid_until)-Date.now())/86400000))}</div><div class="pk">${p.kind==='guest'?'단기 방문권':'정기 이용권'}</div><div class="pt">${esc(regionName(p.region_id))} 언더그라운드</div><div class="pm">${p.expired?'만료됨 · 다시 받기':'열람·참여 가능'}</div><button class="btn btn--sm btn--soft" data-see="${p.region_id}" style="margin-top:12px">이 지역 보기</button></div>`).join('') : `<div class="empty" style="padding:22px"><div class="ic">🎟️</div>아직 받은 이용권이 없어요.<br>아래 다른 동네를 구경하고 열어보세요.</div>`;
+  const promos = PASS_PROMOS.filter(pp=>pp.id!==home).slice(0,4).map(pp=>`
+    <div class="promo" data-promo="${pp.id}">
+      <div class="promo__emo">${pp.emoji}</div>
+      <div class="promo__body">
+        <div class="promo__nm">${esc(regionName(pp.id)||pp.name)} <span class="promo__live">● 모임 ${pp.live}곳 진행중</span></div>
+        <div class="promo__ds">${esc(pp.blurb)}</div>
+      </div>
+      <span class="promo__go">🔒 열기 ›</span>
+    </div>`).join('');
   body.innerHTML = `
-    <div class="vbanner"><span>${ICON.pin}</span><div>홈은 <b>${esc(regionName(home))}</b>. 다른 지역은 이용권으로 열려요.</div></div>
-    <div class="sectitle">보유 중인 이용권</div>${mine}
-    <div class="sectitle">다른 지역 열어보기</div>
-    <div class="field">${regionTrigger('pr', '', '이용권 받을 지역 선택')}</div>
+    <div class="vbanner"><span>${ICON.pin}</span><div>홈은 <b>${esc(regionName(home))}</b> — 여기는 이미 무료로 열려 있어요.</div></div>
+
+    <div class="infobox">
+      <div class="infobox__hd"><span class="infobox__i">ⓘ</span><b>지역 이용권이 뭔가요?</b></div>
+      <p>언더그라운드맵은 <b>그 동네에 사는 사람에게만</b> 보이는 로컬 전용 지도예요. 관광객·외부인은 못 들어와요. 그래서 <b>내 동네는 무료</b>로 열리고, <b>다른 동네</b>가 궁금할 때만 이용권으로 잠깐 문을 여는 구조예요.</p>
+      <div class="steps">
+        <div class="step"><span class="step__n">1</span><div><b>동네와 기간을 고르고</b> 이용권을 받아요</div></div>
+        <div class="step"><span class="step__n">2</span><div>그 동네 지도가 열려요 — <b>모임 열람 + 신청 모두 가능</b></div></div>
+        <div class="step"><span class="step__n">3</span><div>기간이 끝나면 자동으로 닫혀요. <b>자동 결제·연장 없음</b></div></div>
+      </div>
+      <p class="infobox__note">💡 자주 오가는 동네가 있다면 <b>90일권(하루 277원꼴)</b>이 가장 이득이에요. 딱 한 번 다녀올 거면 <b>7일 방문권</b>으로 충분해요.</p>
+    </div>
+
+    <div class="sectitle">내 이용권</div>${mine}
+
+    <div class="sectitle">지금 다른 동네에선 <span class="sub">· 눌러서 바로 열기</span></div>
+    ${promos || '<p class="hint">지금은 소개할 다른 지역이 없어요.</p>'}
+
+    <div class="sectitle">이용권 받기</div>
+    <div class="field"><label>① 어느 동네를 열까요?</label>${regionTrigger('pr', '', '지역 선택 (예: 마포구)')}</div>
+    <div class="field" style="margin-bottom:6px"><label>② 얼마 동안 쓸까요?</label></div>
     <div id="prods">${PASS_PRODUCTS.map(pr=>`<div class="pass pass--pick" data-k="${pr.key}" aria-pressed="false"><div class="pd">₩${pr.price.toLocaleString()}</div><div class="pk">${esc(pr.label)}</div><div class="pm">${esc(pr.desc)}</div></div>`).join('')}</div>
-    <div class="cta-dock" style="position:sticky;background:none;padding:14px 0"><button class="btn btn--lg btn--primary btn--block" id="buy" disabled>이용권 받기</button></div>`;
+    <button class="btn btn--lg btn--primary btn--block" id="buy" style="margin-top:10px" disabled>지역·기간을 골라주세요</button>
+    <p class="hint center" style="margin-top:10px">${IS_MOCK?'파일럿 · 실제 결제는 없어요':'안전 결제'} · 언제든 파기 요청 가능</p>
+    <div style="height:88px"></div>`;
   body.querySelectorAll('[data-see]').forEach(el=>el.onclick=()=>{ state.viewRegion=el.dataset.see; go('#/map'); });
   let pick=null, pickRegion='';
+  const setRegion=(id)=>{ pickRegion=id; const b=document.getElementById('pr'); b.classList.remove('is-empty'); b.querySelector('.rpick__lbl').textContent=regionName(id); refresh(); };
+  body.querySelectorAll('[data-promo]').forEach(el=>el.onclick=()=>{ setRegion(el.dataset.promo); document.getElementById('prods').scrollIntoView({behavior:'smooth',block:'center'}); });
   const prBtn=document.getElementById('pr'), buy=document.getElementById('buy');
   const refresh=()=>{ const rid=pickRegion; const dupe=heldIds.has(rid); const homeSel=rid===home;
     buy.disabled=!(rid&&pick&&!homeSel&&!dupe);
     buy.textContent = homeSel?'홈 지역은 발급할 수 없어요': dupe?'이미 이용권이 있어요':'이용권 받기'; };
-  prBtn.onclick=()=>openRegionPicker({ selected:pickRegion, title:'이용권 받을 지역',
-    onPick:(id)=>{ pickRegion=id; prBtn.classList.remove('is-empty'); prBtn.querySelector('.rpick__lbl').textContent=regionName(id); refresh(); } });
+  prBtn.onclick=()=>openRegionPicker({ selected:pickRegion, title:'이용권 받을 지역', onPick:setRegion });
   body.querySelectorAll('.pass--pick').forEach(el=>el.onclick=()=>{ pick=el.dataset.k; body.querySelectorAll('.pass--pick').forEach(x=>x.setAttribute('aria-pressed',x===el)); refresh(); });
   buy.onclick=()=>{ const prod=PASS_PRODUCTS.find(p=>p.key===pick);
     if(getStudy()){   // 검증 모드: 크레딧 차감 + 이유 수집 + 로깅
@@ -644,6 +706,72 @@ async function screenPasses(){
 /* ═══════════════════════════════════════════════
  * 사장님(매장 소유주) 모드
  * ═══════════════════════════════════════════════ */
+
+/* ── O0 사장님 인테이크 (데모 前 '이 사장이 누구인가' 회수 · docs/08 §2-0/B) ──
+ * 청년엔 인테이크가 있는데 사장엔 없어 응답을 세그먼트할 수 없던 문제 해결.
+ * 업종·규모·유휴시간 실태·기존 시도·가장 큰 고민을 받아 owner_intake 로 적재하고
+ * 그 조건으로 데모 매장을 만든다(맞춤 소개서가 '내 가게' 기준이 된다). */
+const OWNER_CAT_OPTIONS = ['카페','책방·북카페','바·펍','로스터리','공방','음식점','기타'];
+const OWNER_IDLE_BAND = ['오전(개점 전)','점심 후 오후(데드타임)','늦은 오후','저녁','밤'];
+const OWNER_IDLE_FREQ = ['거의 매일 비어요','특정 요일만','가끔','거의 안 비어요'];
+const OWNER_TRIED = ['대관 해봤다','원데이 클래스 해봤다','모임·소셜 유치 해봤다','해본 적 없다'];
+const OWNER_FACILITY_HINT = { '카페':['테이블 좌석','통창','와이파이','콘센트'], '책방·북카페':['좌식 좌석','책 다수','핸드드립 커피'], '바·펍':['스탠딩·바 좌석','음향 시설','논알콜 가능'], '로스터리':['바 좌석','원두 시음'], '공방':['작업 테이블','도구 대여'], '음식점':['테이블 좌석','주방','단체석'] };
+const OWNER_PROGRAM_HINT = { '카페':['모각작','드로잉 클래스','커피 클래스'], '책방·북카페':['북토크','필사 모임','글쓰기'], '바·펍':['LP 감상회','와인 소셜링'], '로스터리':['커피 클래스','와인 소셜링'], '공방':['드로잉 클래스','원데이 공예'], '음식점':['쿠킹 클래스','저녁 소셜'] };
+let ownerIntakeState=null;
+function screenOwnerIntake(){
+  renderAppbar(null); renderTabbar(null); setAdsVisible(false);
+  const mb=document.getElementById('modebar'); if(mb) mb.style.display='none';
+  if(!ownerIntakeState) ownerIntakeState={ category:'', regionId:'', venueName:'', capacity:'', idleDays:'평일', idleBand:'', idleFreq:'', tried:[], concern:'', consent:false };
+  const iv=ownerIntakeState;
+  fscr(`
+    <div class="gate__mark" style="margin:0 auto 6px">${ICON.store}</div>
+    <h1 class="dtitle" style="text-align:center;margin-top:0">사장님,<br>가게부터 알려주세요</h1>
+    <p class="hint" style="text-align:center;margin-bottom:16px">익명이에요. 몇 개만 채우면 <b>사장님 가게 조건 그대로</b> 보여드려요.</p>
+
+    <div class="field"><label>업종</label>
+      <div class="chips" id="ocat">${OWNER_CAT_OPTIONS.map(c=>`<button type="button" class="chip" data-v="${esc(c)}" aria-pressed="${iv.category===c}">${esc(c)}</button>`).join('')}</div></div>
+
+    <div class="field"><label>가게 이름 <span class="sub">· 선택</span></label><input class="input" id="oname" value="${esc(iv.venueName)}" placeholder="비워두면 '동네 우리 가게'"></div>
+
+    <div class="field"><label>가게가 있는 지역</label>${regionTrigger('oregion', iv.regionId, '가게 동네 선택')}</div>
+
+    <div class="row2"><div class="field"><label>최대 수용 인원</label><input class="input" id="ocap" type="number" min="2" max="60" value="${esc(iv.capacity)}" placeholder="예: 12"></div>
+      <div class="field"><label>주로 비는 시간대</label><select class="select" id="oband"><option value="">선택</option>${OWNER_IDLE_BAND.map(b=>`<option ${iv.idleBand===b?'selected':''}>${b}</option>`).join('')}</select></div></div>
+
+    <div class="field"><label>유휴 시간이 얼마나 자주 생기나요?</label>
+      <div class="chips" id="ofreq">${OWNER_IDLE_FREQ.map(f=>`<button type="button" class="chip" data-v="${esc(f)}" aria-pressed="${iv.idleFreq===f}">${esc(f)}</button>`).join('')}</div></div>
+
+    <div class="field"><label>전에 이런 거 해보신 적 있어요? <span class="sub">· 복수 선택</span></label>
+      <div class="chips" id="otried">${OWNER_TRIED.map(t=>`<button type="button" class="chip" data-v="${esc(t)}" aria-pressed="${iv.tried.includes(t)}">${esc(t)}</button>`).join('')}</div></div>
+
+    <div class="field"><label>해보기 전에 제일 걸리는 점, 있으세요? <span class="sub">· 선택</span></label>
+      <textarea class="textarea" id="oconcern" placeholder="물건 파손은 누가 책임지나, 우리 단골 시간이랑 겹치진 않나…">${esc(iv.concern)}</textarea></div>
+
+    <label class="check" style="margin-top:4px"><input type="checkbox" id="oconsent" ${iv.consent?'checked':''}><span class="box">${ICON.check}</span>
+      <span><b>개인정보 수집·이용에 동의</b>합니다. 업종·지역·답변은 <b>익명</b>으로 설문에만 써요.</span></label>`,
+    `<button class="btn btn--lg btn--primary btn--block" id="ostart">동의하고 데모 보기</button>`);
+
+  const scope=$screen;
+  const single=(sel,key)=>scope.querySelectorAll(`#${sel} [data-v]`).forEach(el=>el.onclick=()=>{ iv[key]=el.dataset.v; scope.querySelectorAll(`#${sel} [data-v]`).forEach(x=>x.setAttribute('aria-pressed', x.dataset.v===iv[key])); });
+  single('ocat','category'); single('ofreq','idleFreq');
+  scope.querySelectorAll('#otried [data-v]').forEach(el=>el.onclick=()=>{ const v=el.dataset.v; const i=iv.tried.indexOf(v); if(i>=0) iv.tried.splice(i,1); else iv.tried.push(v); el.setAttribute('aria-pressed', iv.tried.includes(v)); });
+  scope.querySelector('#oname').oninput=e=>iv.venueName=e.target.value;
+  scope.querySelector('#ocap').oninput=e=>iv.capacity=e.target.value;
+  scope.querySelector('#oband').onchange=e=>iv.idleBand=e.target.value;
+  scope.querySelector('#oconcern').oninput=e=>iv.concern=e.target.value;
+  scope.querySelector('#oconsent').onchange=e=>iv.consent=e.target.checked;
+  scope.querySelector('#oregion').onclick=()=>openRegionPicker({ selected:iv.regionId, title:'가게가 어느 동네에 있나요?',
+    onPick:id=>{ iv.regionId=id; const b=scope.querySelector('#oregion'); b.classList.remove('is-empty'); b.querySelector('.rpick__lbl').textContent=regionName(id); } });
+  scope.querySelector('#ostart').onclick=()=>{
+    if(!iv.category) return toast('업종을 골라 주세요.','err');
+    if(!iv.regionId) return toast('가게 지역을 선택해 주세요.','err');
+    if(!iv.consent)  return toast('개인정보 수집·이용에 동의해 주세요.','err');
+    saveOwnerIntake({ category:iv.category, regionId:iv.regionId, venueName:(iv.venueName||'').trim(),
+      capacity:+iv.capacity||null, idleDays:iv.idleDays, idleBand:iv.idleBand, idleFreq:iv.idleFreq, tried:iv.tried, concern:(iv.concern||'').trim(), consent:true });
+    ownerIntakeState=null;
+    beginOwnerDemo(getOwnerIntake());
+  };
+}
 
 /* ── O1 사장님 홈(대시보드) ── */
 async function screenOwnerHome(){
@@ -853,38 +981,51 @@ async function screenOwnerClosing(){
     <div class="hl"><span>${ICON.store}</span><div class="t">지금 <b>0원인 유휴 시간</b>을 손님이 채우고, 그 손님이 매장에서 씁니다. 낯선 대관이 아니라 <b>검증된 호스트</b>가 손님을 데려와요. 리스크·인력은 우리가 대신합니다.</div></div>
     </div>
     <div class="cta-dock"><button class="btn btn--lg btn--primary" id="commit">이번 주 딱 한 타임, 무료로 열어보기</button></div>`);
-  document.getElementById('commit').onclick=ownerTrialModal;
+  document.getElementById('commit').onclick=()=>ownerTrialModal(v.program_candidates||[]);
 }
-function ownerTrialModal(){   // L3
+function ownerTrialModal(cands=[]){   // L3
   const dates=nextWeekDates();
+  const progRef={v:''};
   const wrap=document.createElement('div'); wrap.className='modal';
   wrap.innerHTML=`<div class="modal__bd"></div>
     <div class="modal__sheet" role="dialog" aria-modal="true" aria-label="무료 시범 개방">
       <div class="modal__grip"></div>
       <div class="modal__title">이번 주 딱 한 타임, 무료로 시범 열어보실래요?</div>
       <div class="modal__body">
-        <p class="hint" style="margin:-4px 0 12px">안 맞으면 바로 접어도 돼요. 날짜만 정하면 호스트·모객은 우리가 붙여요.</p>
+        <p class="hint" style="margin:-4px 0 12px">안 맞으면 바로 접어도 돼요. 날짜·프로그램만 정하면 호스트·모객은 우리가 붙여요.</p>
+        ${cands.length?`<div class="sectitle" style="margin-top:0">어떤 프로그램이면 좋을까요?</div>
+        <div class="chips" id="oprog">${cands.map(c=>`<button type="button" class="chip" data-v="${esc(c)}" aria-pressed="false">${esc(c)}</button>`).join('')}</div>`:''}
+        <div class="sectitle">언제 열어볼까요?</div>
         <div class="chips" id="odates">${dates.map(dt=>`<button type="button" class="chip" data-d="${dt.iso}">${esc(dt.label)}</button>`).join('')}</div>
       </div>
       <div class="modal__cta"><button class="btn btn--md btn--neutral btn--block" data-cancel>다음에 할게요</button></div>
     </div>`;
   document.body.appendChild(wrap); requestAnimationFrame(()=>wrap.classList.add('show'));
   const close=()=>{ wrap.classList.remove('show'); setTimeout(()=>wrap.remove(),240); };
+  if(cands.length) bindSingle(wrap,'oprog',progRef);
   wrap.querySelector('.modal__bd').onclick=close; wrap.querySelector('[data-cancel]').onclick=close;
   wrap.querySelectorAll('[data-d]').forEach(el=>el.onclick=()=>{ const iso=el.dataset.d; close();
-    logEvent('owner_trial_commit',{ open_free_slot:true, date:iso }); ownerLeadModal(); });
+    logEvent('owner_trial_commit',{ open_free_slot:true, date:iso, program:progRef.v||null }); ownerLeadModal(); });
 }
+const OWNER_TOPICS = ['시범 준비되면','수익 사례 생기면','정식 오픈하면'];
+const OWNER_CALL_TIME = ['오전','점심 후','저녁','아무 때나'];
 function ownerLeadModal(){   // L4
   let channel='전화';
+  const topics=new Set([OWNER_TOPICS[0]]); const callRef={v:''};
   const wrap=document.createElement('div'); wrap.className='modal';
   wrap.innerHTML=`<div class="modal__bd"></div>
     <div class="modal__sheet" role="dialog" aria-modal="true" aria-label="연락처">
       <div class="modal__grip"></div>
       <div class="modal__title">시범 타임 잡고, 어디로 연락드릴까요?</div>
       <div class="modal__body">
-        <p class="hint" style="margin:-4px 0 12px">연락처는 시범 준비에만 쓰고 안전하게(해시) 보관해요.</p>
+        <p class="hint" style="margin:-4px 0 12px">연락처는 시범 준비·알림에만 써요.</p>
+        <div class="sectitle" style="margin-top:0">어떤 소식 받으실래요?</div>
+        <div class="chips" id="otopics">${OWNER_TOPICS.map(t=>`<button type="button" class="chip" data-v="${esc(t)}" aria-pressed="${t===OWNER_TOPICS[0]}">${esc(t)}</button>`).join('')}</div>
+        <div class="sectitle">연락은 언제가 편하세요?</div>
+        <div class="chips" id="ocall">${OWNER_CALL_TIME.map(t=>`<button type="button" class="chip" data-v="${esc(t)}" aria-pressed="false">${esc(t)}</button>`).join('')}</div>
+        <div class="sectitle">어디로 연락드릴까요?</div>
         <div class="seg" id="och">${['전화','카톡','이메일'].map((c,i)=>`<button data-c="${c}" aria-selected="${i===0}">${c}</button>`).join('')}</div>
-        <div class="field" style="margin-top:14px"><input class="input" id="oval" placeholder="전화번호 / 카톡 아이디 / 이메일" autocomplete="off"></div>
+        <div class="field" style="margin-top:12px"><input class="input" id="oval" placeholder="전화번호 / 카톡 아이디 / 이메일" autocomplete="off"></div>
       </div>
       <div class="modal__cta">
         <button class="btn btn--md btn--neutral btn--block" data-skip>건너뛰기</button>
@@ -893,6 +1034,7 @@ function ownerLeadModal(){   // L4
     </div>`;
   document.body.appendChild(wrap); requestAnimationFrame(()=>wrap.classList.add('show'));
   const close=()=>{ wrap.classList.remove('show'); setTimeout(()=>wrap.remove(),240); };
+  bindMulti(wrap,'otopics',topics); bindSingle(wrap,'ocall',callRef);
   const seg=wrap.querySelector('#och');
   seg.querySelectorAll('[data-c]').forEach(el=>el.onclick=()=>{ channel=el.dataset.c; seg.querySelectorAll('[data-c]').forEach(x=>x.setAttribute('aria-selected',x===el)); mountSeg(seg); });
   mountSeg(seg);
@@ -900,41 +1042,98 @@ function ownerLeadModal(){   // L4
   wrap.querySelector('[data-skip]').onclick=()=>{ close(); go('#/survey'); };
   wrap.querySelector('[data-ok]').onclick=()=>{ const v=wrap.querySelector('#oval').value.trim();
     if(!v) return toast('연락처를 입력하거나 건너뛰어 주세요.','err');
-    logEvent('owner_lead',{ contact_hash:hashContact(channel+':'+v), next_step:'trial_scheduled' }); close(); toast('시범 타임 준비되면 연락드릴게요!','ok'); go('#/survey'); };
+    const oi=getOwnerIntake()||{}; const tps=[...topics], timePref=callRef.v||null;
+    logEvent('owner_lead',{ contact_hash:hashContact(channel+':'+v), next_step:'trial_scheduled', topics:tps, call_time:timePref });
+    saveWaitlist({ channel, contact:v, regionId:oi.regionId||null, interests:[oi.category].filter(Boolean), topics:tps, timePref });   // 실제 알림용(옵트인)
+    close(); toast('시범 타임 준비되면 연락드릴게요!','ok'); go('#/survey'); };
 }
 
 /* ═══════════ 검증(연구) 계층 — 페르소나·지갑·의사결정 로깅 ═══════════ */
 /* 설계: docs/08_검증설계_MVP.md — 선택=설문(revealed preference) */
+const AGE_OPTIONS = ['10대','20대','30대','40대','50대+'];
+const GENDER_OPTIONS = ['여성','남성','기타/선택안함'];
+const NICK_ADJ = ['조용한','느긋한','골목','밤산책','다정한','수줍은','유랑','단골'];
+const NICK_NOUN = ['이웃','산책러','책방손님','로컬','여행자','단짝','달빛','골목대장'];
+function autoNick(){ return NICK_ADJ[Math.floor(Math.random()*NICK_ADJ.length)] + ' ' + NICK_NOUN[Math.floor(Math.random()*NICK_NOUN.length)]; }
+const INTAKE_KEY = 'ug_intake_v1';   // mock 재진입 시 폼값 보존용(sessionStorage)
+
 function screenStudy(){
   renderAppbar(null); renderTabbar(null); setAdsVisible(false);
   const mb=document.getElementById('modebar'); if(mb) mb.style.display='none';
-  scrRaw(`<div class="gate"><div class="gate__inner">
-    <div class="gate__mark">${ICON.keypin}</div>
-    <h1>당신은<br>어떤 청년인가요?</h1>
-    <p>골라주시면 그에 맞는 동네 지도를 열어드려요.<br>그리고 <b>${won(STUDY_BUDGET)} 크레딧</b>을 드릴게요 — <b>진짜 내 돈처럼</b> 써보세요.</p>
-    <div class="gate__cta" style="gap:10px">
-      ${PERSONAS.map(p=>`<button class="card persona-card" data-p="${p.key}"><div class="pc-emo">${p.emoji}</div><div class="pc-body"><div class="mt">${esc(p.label)}</div><p class="hint" style="margin-top:4px">${esc(p.desc)}</p></div></button>`).join('')}
-    </div>
-    <p class="hint center" style="margin-top:14px">당신이 고르는 것이 곧 우리에게 주는 답이 돼요.</p>
-    </div></div>`);
-  document.querySelectorAll('[data-p]').forEach(el=>el.onclick=()=>beginPersona(el.dataset.p));
-  // ?persona= 로 넘어온 재진입(라이브→mock 리다이렉트 후)은 자동 시작
+  // ?persona= 로 넘어온 재진입(라이브→mock 리다이렉트 후)은 폼값 복원 후 자동 시작
   const auto=new URLSearchParams(window.location.search).get('persona');
-  if(auto && IS_MOCK && personaByKey(auto)) beginPersona(auto);
+  if(auto && IS_MOCK && personaByKey(auto)){
+    try{ const saved=sessionStorage.getItem(INTAKE_KEY); if(saved) state.intake={ ...JSON.parse(saved) }; }catch(e){}
+    if(state.intake?.consent) return beginStudy(auto);
+  }
+  if(!state.intake) state.intake={ consent:false, ageRange:'', gender:'', nickname:'', regionId:'', persona:'' };
+  const iv=state.intake;
+  scrRaw(`<div class="gate"><div class="gate__inner" style="text-align:left">
+    <div class="gate__mark" style="margin:0 auto 6px">${ICON.keypin}</div>
+    <h1 style="text-align:center">잠깐,<br>당신을 알려주세요</h1>
+    <p style="text-align:center">익명으로 진행돼요. 아래를 채우면 <b>당신 동네의 진짜 지도</b>가 열리고 <b>${won(STUDY_BUDGET)} 크레딧</b>을 드려요.</p>
+
+    <div class="field" style="margin-top:18px"><label>나이대</label>
+      <div class="chips" id="ageChips">${AGE_OPTIONS.map(a=>`<button type="button" class="chip" data-age="${esc(a)}" aria-pressed="${iv.ageRange===a}">${esc(a)}</button>`).join('')}</div></div>
+
+    <div class="field"><label>성별 <span class="hint" style="font-weight:400">· 선택</span></label>
+      <div class="chips" id="genderChips">${GENDER_OPTIONS.map(g=>`<button type="button" class="chip" data-gender="${esc(g)}" aria-pressed="${iv.gender===g}">${esc(g)}</button>`).join('')}</div></div>
+
+    <div class="field"><label>동네에서 불릴 이름 <span class="hint" style="font-weight:400">· 익명</span></label>
+      <input class="input" id="nick" placeholder="비워두면 자동으로 지어드려요" value="${esc(iv.nickname)}"></div>
+
+    <div class="field"><label>실제 거주 지역</label>${regionTrigger('region', iv.regionId, '내 동네 선택 (예: 마포구)')}
+      <p class="hint" style="margin-top:6px">고른 동네의 실제 지도가 열려요. 서울은 구, 그 외는 시 단위예요.</p></div>
+
+    <div class="field"><label>동네를 어떻게 쓰세요?</label>
+      <div class="gate__cta" style="gap:8px">${PERSONAS.map(p=>`<button type="button" class="card persona-card ${iv.persona===p.key?'is-sel':''}" data-p="${p.key}"><div class="pc-emo">${p.emoji}</div><div class="pc-body"><div class="mt">${esc(p.label)}</div><p class="hint" style="margin-top:4px">${esc(p.desc)}</p></div></button>`).join('')}</div></div>
+
+    <label class="check" style="margin-top:6px"><input type="checkbox" id="consent" ${iv.consent?'checked':''}><span class="box">${ICON.check}</span>
+      <span><b>개인정보 수집·이용에 동의</b>합니다. (나이대·성별·닉네임·거주지역·선택기록을 <b>익명</b>으로 설문 목적에만 사용, 언제든 파기 요청 가능)</span></label>
+
+    <div class="gate__cta" style="margin-top:14px"><button class="btn btn--lg btn--primary btn--block" id="start">동의하고 시작하기</button></div>
+    </div></div>`);
+
+  const scope=$screen;
+  scope.querySelectorAll('#ageChips [data-age]').forEach(el=>el.onclick=()=>{ iv.ageRange=el.dataset.age; scope.querySelectorAll('#ageChips [data-age]').forEach(x=>x.setAttribute('aria-pressed', x.dataset.age===iv.ageRange)); });
+  scope.querySelectorAll('#genderChips [data-gender]').forEach(el=>el.onclick=()=>{ iv.gender = iv.gender===el.dataset.gender?'':el.dataset.gender; scope.querySelectorAll('#genderChips [data-gender]').forEach(x=>x.setAttribute('aria-pressed', x.dataset.gender===iv.gender)); });
+  scope.querySelector('#nick').oninput=e=>{ iv.nickname=e.target.value; };
+  scope.querySelector('#consent').onchange=e=>{ iv.consent=e.target.checked; };
+  scope.querySelectorAll('[data-p]').forEach(el=>el.onclick=()=>{ iv.persona=el.dataset.p; scope.querySelectorAll('[data-p]').forEach(x=>x.classList.toggle('is-sel', x.dataset.p===iv.persona)); });
+  scope.querySelector('#region').onclick=()=>openRegionPicker({ selected:iv.regionId, title:'어느 동네에 사세요?',
+    onPick:id=>{ iv.regionId=id; const b=scope.querySelector('#region'); b.classList.remove('is-empty'); b.querySelector('.rpick__lbl').textContent=regionName(id); } });
+  scope.querySelector('#start').onclick=()=>{
+    if(!iv.ageRange) return toast('나이대를 골라 주세요.','err');
+    if(!iv.regionId) return toast('거주 지역을 선택해 주세요.','err');
+    if(!iv.persona)  return toast('동네를 어떻게 쓰는지 골라 주세요.','err');
+    if(!iv.consent)  return toast('개인정보 수집·이용에 동의해 주세요.','err');
+    beginStudy(iv.persona);
+  };
 }
 
-async function beginPersona(key){
+async function beginStudy(key){
   const p=personaByKey(key); if(!p) return;
-  // 검증 실험은 mock(동일 자극·무마찰)에서 돈다. 라이브면 ?mock=1 로 재진입.
-  if(!IS_MOCK){ const u=new URL(window.location.href); u.searchParams.set('mock','1'); u.searchParams.set('persona',key); u.hash='#/study'; return window.location.replace(u.toString()); }
+  const iv=state.intake||{};
+  const respondent={ consent:!!iv.consent, ageRange:iv.ageRange||null, gender:iv.gender||null,
+    nickname:(iv.nickname||'').trim()||autoNick(), regionId:iv.regionId||p.home };
+  // 검증 실험은 mock(동일 자극·무마찰)에서 돈다. 라이브면 폼값 보존 후 ?mock=1 로 재진입.
+  if(!IS_MOCK){
+    try{ sessionStorage.setItem(INTAKE_KEY, JSON.stringify({ ...iv, nickname:respondent.nickname, consent:true })); }catch(e){}
+    const u=new URL(window.location.href); u.searchParams.set('mock','1'); u.searchParams.set('persona',key); u.hash='#/study'; return window.location.replace(u.toString());
+  }
   try{
-    startStudy(key);
+    const home=respondent.regionId;
+    startStudy(key, respondent);
+    try{ sessionStorage.removeItem(INTAKE_KEY); }catch(e){}
     await db.signIn('study_'+key+'@local');
-    const prof=await db.verifyResident({ regionId:p.home, displayName:p.nick, interests:[], bio:'', isHost:false });
+    const prof=await db.verifyResident({ regionId:home, displayName:respondent.nickname, interests:[], bio:'', isHost:false });
+    // 고른 동네(+이동청년이면 잠금 미끼 지역)에 비교가능 자극 설치 → 빈 지도 방지 + mover 게이팅 실동작(A/E)
+    const lures = key==='mover' ? (p.highlight||[]).filter(id=>id && id!==home) : [];
+    if(db.installStimulus) await db.installStimulus({ homeId:home, lureIds:lures });
     await boot();
-    state.profile=prof; state.viewRegion=p.home; state.viewable=[];
+    state.profile=prof; state.viewRegion=home; state.viewable=[]; state.intake=null;
     const mb2=document.getElementById('modebar'); if(mb2){ mb2.style.display=''; mb2.innerHTML=`<span class="wpill">🪙 크레딧 <b>${won(balance())}</b></span><button class="wend" data-end>테스트 끝내기</button>`; const eb=mb2.querySelector('[data-end]'); if(eb) eb.onclick=endStudyFlow; }
-    gateOpen(regionName(p.home));
+    gateOpen(regionName(home));
   }catch(e){ toast(e.message,'err'); }
 }
 
@@ -1035,6 +1234,7 @@ function surveyQuestions(role){
     { id:'o3', type:'single',  q:'가장 걱정되는 점은?', opts:['낯선 모임·소음','정산·수익성','운영 번거로움','기존 손님 반응','없음'] },
     { id:'o4', type:'single',  q:'무료 시범 1타임, 열어보실 의향은?', opts:['바로 좋아요','조건 맞으면','좀 더 생각','아니오'] },
     { id:'o5', type:'open',    q:'어떤 조건이면 확실히 참여?', optional:true },
+    { id:'o6', type:'open',    q:'해보기 전에 제일 걸리는 게 뭐예요? 솔직하게요.', optional:true },
   ];
   return [
     { id:'q1', type:'scale5', q:"평소 '혼자 가도 괜찮은, 취향 맞는 동네 모임'이 없어 아쉬웠던 적?", lo:'전혀', hi:'자주' },
@@ -1047,6 +1247,7 @@ function surveyQuestions(role){
     { id:'q8', type:'single',  q:'요즘 당신은?', opts:['취준·휴학','프리랜서·재택','직장인','이주·정착','기타'] },
     { id:'q9', type:'scale5', q:'이런 모임 다니면 동네에 아는 얼굴이 늘 것 같나요?', lo:'아니다', hi:'그렇다' },
     { id:'q10', type:'open',   q:'딱 하나 바꾸고 싶은 게 있다면?', optional:true },
+    { id:'q11', type:'open',   q:'써보다 걸리거나 궁금했던 거, 하나만 편하게 적어줘요.', optional:true },
   ];
 }
 function renderQuestion(q){
@@ -1092,25 +1293,45 @@ function screenSurvey(){
 
 /* ═══════════ 리드 캡처 #/lead (docs/08 §3-8) ═══════════ */
 function hashContact(v){ const s=String(v||''); let h=5381; for(let i=0;i<s.length;i++) h=(((h<<5)+h)+s.charCodeAt(i))>>>0; return 'h'+h.toString(16); }
+const LEAD_TOPICS = ['우리 동네에 열리면','관심 있는 모임 뜨면','정식 오픈하면'];
+const LEAD_CATS = ['독서·글쓰기','커피·와인','드로잉·공예','음악·LP','모각작','러닝·산책'];
+const LEAD_TIMES = ['평일 저녁','평일 낮','주말'];
+function chipRow(id, items, preset=[]){
+  return `<div class="chips" id="${id}">${items.map(t=>`<button type="button" class="chip" data-v="${esc(t)}" aria-pressed="${preset.includes(t)}">${esc(t)}</button>`).join('')}</div>`;
+}
+function bindMulti(scope, id, set){ scope.querySelectorAll(`#${id} [data-v]`).forEach(el=>el.onclick=()=>{ const v=el.dataset.v; if(set.has(v))set.delete(v); else set.add(v); el.setAttribute('aria-pressed', set.has(v)); }); }
+function bindSingle(scope, id, ref){ scope.querySelectorAll(`#${id} [data-v]`).forEach(el=>el.onclick=()=>{ ref.v = ref.v===el.dataset.v?'':el.dataset.v; scope.querySelectorAll(`#${id} [data-v]`).forEach(x=>x.setAttribute('aria-pressed', x.dataset.v===ref.v)); }); }
 function screenLead(){
   renderAppbar({title:'거의 끝났어요', back:false}); renderTabbar(null); setAdsVisible(false);
   const mb=document.getElementById('modebar'); if(mb) mb.innerHTML='';
   let channel='카톡';
+  const topics=new Set([LEAD_TOPICS[0]]); const cats=new Set(); const timeRef={v:''};
   fscr(`
     <h1 class="dtitle" style="margin-top:6px;line-height:1.5">이 동네에 진짜로 이런 모임이 열리면<br><span style="color:var(--brand)">가장 먼저 알려드릴게요.</span></h1>
-    <p class="hint" style="margin-bottom:18px">원하시는 분만요. 연락처는 오픈 알림에만 쓰고 안전하게(해시) 보관해요.</p>
-    <div class="seg" id="lch">${['카톡','전화','이메일'].map((c,i)=>`<button data-c="${c}" aria-selected="${i===0}">${c}</button>`).join('')}</div>
-    <div class="field" style="margin-top:14px"><input class="input" id="lval" placeholder="카톡 아이디 / 전화번호 / 이메일" autocomplete="off"></div>
+    <p class="hint" style="margin-bottom:16px">원하시는 분만요. 연락처는 오픈 알림에만 쓰고, 아래 고른 취향에 맞는 모임이 뜨면 콕 집어 알려드려요.</p>
+
+    <div class="field"><label>어떤 소식 받고 싶어요?</label>${chipRow('lTopics', LEAD_TOPICS, [LEAD_TOPICS[0]])}</div>
+    <div class="field"><label>어떤 모임이 뜨면 알려드릴까요? <span class="sub">· 복수</span></label>${chipRow('lCats', LEAD_CATS)}</div>
+    <div class="field"><label>주로 언제가 편해요?</label>${chipRow('lTime', LEAD_TIMES)}</div>
+
+    <div class="field"><label>어디로 알려드릴까요?</label>
+      <div class="seg" id="lch">${['카톡','전화','이메일'].map((c,i)=>`<button data-c="${c}" aria-selected="${i===0}">${c}</button>`).join('')}</div>
+      <input class="input" id="lval" style="margin-top:12px" placeholder="카톡 아이디 / 전화번호 / 이메일" autocomplete="off"></div>
     <label class="check"><input type="checkbox" id="lok"><span class="box">${ICON.check}</span><span>오픈 알림 받기에 동의해요</span></label>`,
     `<button class="btn btn--lg btn--primary btn--block" id="leadGo">가장 먼저 알림 받기</button>
-     <button class="btn btn--md btn--neutral btn--block" id="leadSkip" style="margin-top:8px">건너뛰기</button>`);
+     <button class="btn btn--md btn--neutral btn--block" id="leadSkip" style="margin-top:8px">괜찮아요, 건너뛰기</button>`);
+  const scope=$screen;
+  bindMulti(scope,'lTopics',topics); bindMulti(scope,'lCats',cats); bindSingle(scope,'lTime',timeRef);
   const seg=document.getElementById('lch');
   seg.querySelectorAll('[data-c]').forEach(el=>el.onclick=()=>{ channel=el.dataset.c; seg.querySelectorAll('[data-c]').forEach(x=>x.setAttribute('aria-selected',x===el)); mountSeg(seg); });
   mountSeg(seg);
   document.getElementById('leadGo').onclick=()=>{ const v=document.getElementById('lval').value.trim();
     if(!v) return toast('연락처를 입력하거나 건너뛰어 주세요.','err');
     if(!document.getElementById('lok').checked) return toast('오픈 알림 수신에 동의해 주세요.','err');
-    logEvent('lead_capture',{ channel, contact_hash:hashContact(channel+':'+v) }); toast('가장 먼저 알려드릴게요!','ok'); go('#/results'); };
+    const interests=[...cats], tps=[...topics], timePref=timeRef.v||null, region=homeRegion();
+    logEvent('lead_capture',{ channel, contact_hash:hashContact(channel+':'+v), topics:tps, interests, time_pref:timePref, region });
+    saveWaitlist({ channel, contact:v, regionId:region, interests, topics:tps, timePref });   // 실제 알림용(옵트인)
+    toast('가장 먼저 알려드릴게요!','ok'); go('#/results'); };
   document.getElementById('leadSkip').onclick=()=>go('#/results');
 }
 
@@ -1200,8 +1421,12 @@ function computeMetrics(all){
   const N=sessions.length; const persona={local:0,mover:0};
   let gmv=0, leftoverSum=0, buyers=0, passBuyers=0;
   const catCount={}, catAmt={}, timeBand={}, priceBucket={'~6천':0,'8천~1만':0,'1.2만+':0}, reasonFreq={}, trackAmt={A:0,B:0}, passByTier={};
-  const solo=[]; const wtp=[]; let leads=0;
+  const solo=[]; const wtp=[]; let leads=0, interestN=0, abandonN=0;
+  const notifyCats={}, notifyTopics={};   // 대기자 관심 카테고리·받고싶은 소식 분포
+  const abandonCats={};   // 예산 부족으로 못 담은 것(가격 상한·최고수요)
+  const skipReasons={};   // 잔액 남긴 이유(미충족 수요·가격/시간 미스매치)
   const surveys=[]; let intendNow=0, overclaim=0;   // 진술↔행동 갭(Q4 vs 실제결제)
+  const openDemand=[];   // 청년 자유응답(q10 바꾸고싶은것 · q11 궁금·걱정) — "그들의 궁금증"을 직접 읽는 창(C)
   const byCtx={};   // 컨텍스트별 요약(A/B 이터레이션)
   sessions.forEach(s=>{ if(s.persona) persona[s.persona]=(persona[s.persona]||0)+1;
     const budget=s.budget||30000; const evs=s.events||[];
@@ -1223,9 +1448,15 @@ function computeMetrics(all){
     let sv=null;
     evs.forEach(e=>{ if(e.type==='solo_response'&&e.payload) solo.push(!!e.payload.came_alone);
       if(e.type==='wtp_response'&&e.payload) wtp.push(e.payload);
-      if(e.type==='lead_capture'){ leads++; cb.leads++; }
+      if(e.type==='lead_capture'){ leads++; cb.leads++;
+        (e.payload?.interests||[]).forEach(c=>notifyCats[c]=(notifyCats[c]||0)+1);
+        (e.payload?.topics||[]).forEach(t=>notifyTopics[t]=(notifyTopics[t]||0)+1); }
+      if(e.type==='meetup_interest'){ interestN++; const c=e.payload?.category; if(c) notifyCats[c]=(notifyCats[c]||0)+1; }
+      if(e.type==='abandon'){ abandonN++; const c=e.payload?.category||(e.payload?.kind==='pass'?'지역 이용권':'기타'); abandonCats[c]=(abandonCats[c]||0)+1; }
+      if(e.type==='study_end'){ (e.payload?.reasons||[]).forEach(r=>skipReasons[r]=(skipReasons[r]||0)+1); }
       if(e.type==='survey_response'&&e.payload?.role!=='owner') sv=e.payload; });
-    if(sv){ surveys.push(sv); const q4=sv.answers?.q4; if(q4==='당장 쓴다'){ intendNow++; if(spent<=0) overclaim++; } }
+    if(sv){ surveys.push(sv); const q4=sv.answers?.q4; if(q4==='당장 쓴다'){ intendNow++; if(spent<=0) overclaim++; }
+      ['q11','q10'].forEach(qid=>{ const t=(sv.answers?.[qid]||'').trim(); if(t) openDemand.push({ q:qid, text:t }); }); }
   });
   // NPS = (9~10%) − (0~6%)
   const npsVals=surveys.map(x=>x.nps).filter(v=>v!=null);
@@ -1235,15 +1466,18 @@ function computeMetrics(all){
   const movers=sessions.filter(s=>s.persona==='mover').length;
 
   // ── 공급(오너) 지표 ──
-  const supply={ demoN:ownerSessions.length, intentL2:0, approve:0, reject:0, l3sessions:0, leads:0, o1sum:0, o1n:0, o4:{}, dwell:{}, dwellN:{} };
+  const supply={ demoN:ownerSessions.length, intentL2:0, approve:0, reject:0, l3sessions:0, leads:0, o1sum:0, o1n:0, o4:{}, dwell:{}, dwellN:{}, cat:{}, tried:{}, prog:{} };
+  const openSupply=[];   // 사장 자유응답(인테이크 concern · o5 참여조건 · o6 궁금·걱정)
   ownerSessions.forEach(s=>{ const evs=s.events||[]; let reachedL3=false;
     evs.forEach(e=>{ const p=e.payload||{};
       if(e.type==='owner_intent') supply.intentL2++;
+      else if(e.type==='owner_intake'){ if(p.category) supply.cat[p.category]=(supply.cat[p.category]||0)+1; (p.tried||[]).forEach(t=>supply.tried[t]=(supply.tried[t]||0)+1); if((p.concern||'').trim()) openSupply.push({ q:'concern', text:p.concern.trim() }); }
       else if(e.type==='owner_request_decide'){ if(p.decision==='approve') supply.approve++; else supply.reject++; }
-      else if(e.type==='owner_trial_commit') reachedL3=true;
+      else if(e.type==='owner_trial_commit'){ reachedL3=true; const pg=p.program; if(pg) supply.prog[pg]=(supply.prog[pg]||0)+1; }
       else if(e.type==='owner_lead') supply.leads++;
       else if(e.type==='owner_screen_view'){ const sc=p.screen||'?'; supply.dwell[sc]=(supply.dwell[sc]||0)+(p.dwell_ms||0); supply.dwellN[sc]=(supply.dwellN[sc]||0)+1; }
-      else if(e.type==='survey_response'&&p.role==='owner'){ const o1=+p.answers?.o1; if(o1){ supply.o1sum+=o1; supply.o1n++; } const o4=p.answers?.o4; if(o4) supply.o4[o4]=(supply.o4[o4]||0)+1; }
+      else if(e.type==='survey_response'&&p.role==='owner'){ const o1=+p.answers?.o1; if(o1){ supply.o1sum+=o1; supply.o1n++; } const o4=p.answers?.o4; if(o4) supply.o4[o4]=(supply.o4[o4]||0)+1;
+        ['o6','o5'].forEach(qid=>{ const t=(p.answers?.[qid]||'').trim(); if(t) openSupply.push({ q:qid, text:t }); }); }
     });
     if(reachedL3) supply.l3sessions++;
   });
@@ -1256,9 +1490,11 @@ function computeMetrics(all){
     passBuyers, movers, passRate:movers?passBuyers/movers:0, passByTier,
     soloAlone: solo.length?solo.filter(Boolean).length/solo.length:null, soloN:solo.length,
     wtpN:wtp.length, wtpPay: wtp.length?wtp.filter(w=>w.would_pay_real).length/wtp.length:null, leads,
+    interestN, notifyCats, notifyTopics, abandonN, abandonCats, skipReasons,
     surveyN:surveys.length, nps, q2:surveyDist('q2'), q4:surveyDist('q4'), q7:surveyDist('q7'), q8:surveyDist('q8'),
     intendNow, overclaim, overclaimRate: intendNow?overclaim/intendNow:null,
     byCtx: Object.values(byCtx).sort((a,b)=>b.N-a.N),
+    openDemand, openSupply,
     supply: { ...supply, avgDwell } };
 }
 const abar=(label,val,max,suffix='')=>{ const pct=max?Math.round(val/max*100):0;
@@ -1321,6 +1557,9 @@ async function screenAdmin(){
     <div class="sectitle">가장 많이 고른 이유</div>
     <div class="chips">${Object.entries(m.reasonFreq).sort((a,b)=>b[1]-a[1]).slice(0,8).map(([r,c])=>`<span class="chip chip--tag">${esc(r)} · ${c}</span>`).join('')||'<span class="hint">없음</span>'}</div>
 
+    ${Object.keys(m.abandonCats).length?`<div class="sectitle">담고 싶었지만 예산 부족 (${m.abandonN}건 · 가격 상한·최고수요)</div>${rankRows(m.abandonCats,'건')}`:''}
+    ${Object.keys(m.skipReasons).length?`<div class="sectitle">잔액 남긴 이유 (미충족 수요)</div>${rankRows(m.skipReasons,'명')}`:''}
+
     ${(m.soloN||m.wtpN||m.leads)?`<div class="sectitle">보정 신호</div>
       <div class="kpis kpis--3">
         <div class="kpi"><div class="kpi__v">${pctTxt(m.soloAlone)}</div><div class="kpi__l">혼자 온다<br>(n=${m.soloN})</div></div>
@@ -1353,7 +1592,24 @@ async function screenAdmin(){
       </div>
       ${m.supply.o1n?`<p class="hint">사장님 설문 O1(유휴시간 도움 인식) 평균 <b>${m.supply.o1avg.toFixed(1)}/5</b> · n=${m.supply.o1n}</p>`:''}
       ${Object.keys(m.supply.o4).length?`<div class="sectitle">O4 무료 시범 의향</div>${rankRows(m.supply.o4,'명')}`:''}
-      ${Object.keys(m.supply.avgDwell).length?`<div class="sectitle">화면 체류(평균 초) · 정산 체류=경제적 동기</div>${rankRows(Object.fromEntries(Object.entries(m.supply.avgDwell).map(([k,v])=>[k,Math.round(v/1000)])),'초')}`:''}`:''}
+      ${Object.keys(m.supply.avgDwell).length?`<div class="sectitle">화면 체류(평균 초) · 정산 체류=경제적 동기</div>${rankRows(Object.fromEntries(Object.entries(m.supply.avgDwell).map(([k,v])=>[k,Math.round(v/1000)])),'초')}`:''}
+      ${Object.keys(m.supply.cat).length?`<div class="sectitle">사장 업종 분포</div>${rankRows(m.supply.cat,'곳')}`:''}
+      ${Object.keys(m.supply.tried).length?`<div class="sectitle">기존 시도 경험</div>${rankRows(m.supply.tried,'명')}`:''}`:''}
+
+    ${(m.leads||m.interestN||Object.keys(m.notifyCats).length)?`<div class="sectitle">🔔 대기자·알림 신청 (수요)</div>
+      <div class="kpis kpis--2">
+        <div class="kpi kpi--brand"><div class="kpi__v">${m.leads}</div><div class="kpi__l">오픈 알림 신청<br>(연락처 남김)</div></div>
+        <div class="kpi"><div class="kpi__v">${m.interestN}</div><div class="kpi__l">모임 찜<br>(잠재 수요)</div></div>
+      </div>
+      ${Object.keys(m.notifyCats).length?`<div class="sectitle">알림 받고 싶은 카테고리</div>${rankRows(m.notifyCats,'명')}`:''}
+      ${Object.keys(m.notifyTopics).length?`<div class="sectitle">받고 싶은 소식</div>${rankRows(m.notifyTopics,'명')}`:''}`:''}
+
+    ${Object.keys(m.supply.prog||{}).length?`<div class="sectitle">🔔 사장님 시범 희망 프로그램 (공급)</div>${rankRows(m.supply.prog,'곳')}`:''}
+
+    ${m.openDemand.length?`<div class="sectitle">🗣️ 청년 자유응답 (궁금·걱정·바라는 것) · ${m.openDemand.length}건</div>
+      <div class="quotes">${m.openDemand.map(o=>`<div class="quote"><span class="quote__tag">${o.q==='q11'?'궁금·걱정':'바꾸고싶은것'}</span>${esc(o.text)}</div>`).join('')}</div>`:''}
+    ${m.openSupply.length?`<div class="sectitle">🗣️ 사장님 자유응답 (궁금·걱정·참여조건) · ${m.openSupply.length}건</div>
+      <div class="quotes">${m.openSupply.map(o=>`<div class="quote"><span class="quote__tag">${o.q==='concern'?'인테이크 고민':o.q==='o6'?'궁금·걱정':'참여조건'}</span>${esc(o.text)}</div>`).join('')}</div>`:''}
 
     <div class="divider"></div>
     <div class="hl"><span>${ICON.chart}</span><div class="t">데이터 원천 — 이 브라우저 ${srcCounts.local} · 불러온 파일 ${srcCounts.import} · 원격 ${srcCounts.remote}</div></div>
@@ -1384,6 +1640,8 @@ async function route(){
     if(!state.session) return go('#/signup');
     if(!state.profile?.resident_verified) return go('#/signup');
   }
+  // 사장(공급) 세션은 참여자 기능(이용권)에 접근하지 않는다 → 사장님 홈으로 되돌림
+  if(path==='passes' && (getStudy()?.role==='owner' || (state.ownerMode && STUDY_ROLE==='owner'))) return go('#/owner-home');
   // 모드 동기화: 참여자 탭 진입 시 사장님 모드 해제(공유 화면 'me' 는 유지)
   if(OWNER_ROUTES.includes(path)){ state.ownerMode=true; setTimeout(refreshOwnerBar,0); }
   else if(['map','my','passes','venue','host-apply'].includes(path)) state.ownerMode=false;
@@ -1403,6 +1661,7 @@ async function route(){
     case 'my': return screenMy();
     case 'passes': return screenPasses();
     case 'me': return screenMe();
+    case 'owner-intake': return screenOwnerIntake();
     case 'owner-home': return screenOwnerHome();
     case 'owner-requests': return screenOwnerRequests();
     case 'owner-venue': return screenVenueEdit(arg);

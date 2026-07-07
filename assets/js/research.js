@@ -3,7 +3,7 @@
  * config.js(Supabase) 연결 시 study_events 테이블에도 적재, 없으면 localStorage.
  * 설계: docs/08_검증설계_MVP.md
  */
-import { supabase, IS_MOCK } from './supabase.js';
+import { collector } from './supabase.js';
 
 // 앱=테스트(검증) 서비스 하나. 모든 진입자는 항상 검증 모드로 동작한다.
 // (기존 ?study=0 "검증 끄기" 분기 제거 — 실서비스/테스트 구분 없음)
@@ -42,12 +42,27 @@ function save(s){ try{ localStorage.setItem(SKEY, JSON.stringify(s)); }catch(e){
 export function getStudy(){ return load(); }
 export function studyActive(){ return RESEARCH_ON && !!load(); }
 
-export function startStudy(personaKey){
-  const p = personaByKey(personaKey); if(!p) return null;
-  const s = { tester:'t_'+rid(), persona:personaKey, home:p.home, role:STUDY_ROLE, ctx:STUDY_CTX,
+/* 설문 시작 — respondent = { consent, ageRange, gender, nickname, regionId, move }
+ * home 은 응답자의 실제 거주 지역(regionId)으로 잡는다(없으면 페르소나 기본).
+ * consent 없으면 시작 거부(개인정보 처리 동의 필수). */
+export function startStudy(personaKey, respondent={}){
+  const p = personaByKey(personaKey);
+  if(!respondent.consent) return null;
+  const home = respondent.regionId || p?.home || null;
+  const s = { tester:'t_'+rid(), persona:personaKey, home, role:STUDY_ROLE, ctx:STUDY_CTX,
+    respondent: { ageRange:respondent.ageRange||null, gender:respondent.gender||null,
+                  nickname:respondent.nickname||null, regionId:home, consentAt:new Date().toISOString() },
     budget:STUDY_BUDGET, spent:0, events:[], startedAt:new Date().toISOString(), ended:false };
   save(s);
-  logEvent('study_start', { budget:STUDY_BUDGET });
+  // 응답자 기본정보 1행 적재(익명) — 자극이 mock 이어도 collector 로 실제 Supabase 에 남긴다.
+  if(collector){
+    // supabase-js 쿼리는 lazy — .then() 을 붙여야 실제 전송된다. 실패는 조용히 무시(데모 흐름 우선).
+    collector.from('respondents').insert({
+      tester:s.tester, persona:personaKey, region_id:home,
+      age_range:s.respondent.ageRange, gender:s.respondent.gender, nickname:s.respondent.nickname,
+      role:STUDY_ROLE, ctx:STUDY_CTX, consent:true, created_at:s.startedAt }).then(null, ()=>{});
+  }
+  logEvent('study_start', { budget:STUDY_BUDGET, ageRange:s.respondent.ageRange, gender:s.respondent.gender, region:home });
   return s;
 }
 /* 공급(오너) 데모 세션 — 지갑/페르소나 없이 role=owner 로 계측만 로컬 누적.
@@ -57,6 +72,41 @@ export function startOwnerStudy(){
     budget:0, spent:0, events:[], startedAt:new Date().toISOString(), ended:false };
   save(s);
   return s;
+}
+/* 사장님 인테이크 저장 — 데모 전에 '이 사장이 누구인가'를 받아 응답을 세그먼트 가능하게 한다(docs/08 §2-0).
+ * intake = { category, regionId, capacity, idleDays, idleBand, idleFreq, tried[], concern, consent } */
+export function saveOwnerIntake(intake={}){
+  let s=load();
+  if(!s || s.role!=='owner') s=startOwnerStudy();
+  s.ownerIntake = { ...intake, at:new Date().toISOString() };
+  save(s);
+  if(collector){
+    collector.from('respondents').insert({
+      tester:s.tester, persona:null, region_id:intake.regionId||null,
+      age_range:null, gender:null, nickname:null,
+      role:'owner', ctx:STUDY_CTX, consent:!!intake.consent, created_at:s.ownerIntake.at }).then(null, ()=>{});
+  }
+  logEvent('owner_intake', {
+    category:intake.category||null, region:intake.regionId||null, capacity:intake.capacity||null,
+    idle_days:intake.idleDays||null, idle_band:intake.idleBand||null, idle_freq:intake.idleFreq||null,
+    tried:intake.tried||[], concern:intake.concern||'' });
+  return s;
+}
+export function getOwnerIntake(){ const s=load(); return (s&&s.role==='owner')?s.ownerIntake||null:null; }
+
+/* 대기자 명단 적재 — "나중에 알림 받고 싶은 사람"에게서 받은 것들(실 연락처 옵트인).
+ * payload = { channel, contact, regionId, interests[], topics[], timePref, note }
+ * 집계용 이벤트(lead_capture/owner_lead)는 호출부에서 별도로 남긴다(여긴 실제 연락 저장). */
+export function saveWaitlist(payload={}){
+  const s=load();
+  if(!collector) return false;
+  collector.from('waitlist').insert({
+    tester:s?.tester||null, role:s?.role||STUDY_ROLE,
+    channel:payload.channel||null, contact:payload.contact||null, region_id:payload.regionId||null,
+    interests:payload.interests||[], topics:payload.topics||[], time_pref:payload.timePref||null,
+    note:payload.note||null, ctx:(s&&'ctx' in s)?s.ctx:STUDY_CTX, created_at:new Date().toISOString()
+  }).then(null, ()=>{});
+  return true;
 }
 export function resetStudy(){ try{ localStorage.removeItem(SKEY); }catch(e){} }
 
@@ -74,8 +124,8 @@ export async function logEvent(type, payload={}){
   const ev = { id:'e_'+rid(), type, payload, at:new Date().toISOString(),
     tester:s?.tester||null, persona:s?.persona||null, role, ctx };
   if(s){ (s.events = s.events||[]).push(ev); save(s); }
-  if(!IS_MOCK && supabase){
-    try{ await supabase.from('study_events').insert({ tester:ev.tester, persona:ev.persona, role, ctx, type, payload, created_at:ev.at }); }
+  if(collector){   // 자극이 mock 이어도 설문 이벤트는 실제 Supabase 로 적재
+    try{ await collector.from('study_events').insert({ tester:ev.tester, persona:ev.persona, role, ctx, type, payload, created_at:ev.at }); }
     catch(e){ /* 수집 실패는 조용히 무시(데모 흐름 우선) */ }
   }
   return ev;

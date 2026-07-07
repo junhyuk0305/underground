@@ -299,3 +299,55 @@ alter table public.study_events enable row level security;
 drop policy if exists study_insert_any on public.study_events;
 create policy study_insert_any on public.study_events for insert to anon, authenticated with check (true);
 create index if not exists idx_study_ctx on public.study_events(ctx, type, created_at);
+
+-- ─────────────────────────────────────────────
+-- 9. 설문 응답자 기본정보 — respondents (익명)
+--    research.js startStudy 가 동의 시 1행 적재. study_events.tester 로 이벤트와 조인.
+--    ⚠ 초기화(0번) DROP 대상 아님(create if not exists) — 설문 데이터 보존.
+--    region_id 는 앱의 텍스트 지역 id('r_seoul-mapo' 등, mock 자극 기준)라 FK 아님.
+-- ─────────────────────────────────────────────
+create table if not exists public.respondents (
+  id         uuid primary key default gen_random_uuid(),
+  tester     text,                          -- 익명 테스터 id (study_events.tester 와 동일)
+  persona    text,                          -- local|mover
+  region_id  text,                          -- 실제 거주 지역(응답)
+  age_range  text,                          -- 10대|20대|30대|40대|50대+
+  gender     text,                          -- 여성|남성|기타/선택안함|null(선택)
+  nickname   text,                          -- 익명 닉네임(실명 아님)
+  role       text not null default 'participant',
+  ctx        text,
+  consent    boolean not null default false,-- 개인정보 수집·이용 동의(필수)
+  created_at timestamptz not null default now()
+);
+alter table public.respondents enable row level security;
+-- 익명 응답자도 남겨야 하므로 anon/authenticated insert 허용(읽기는 팀 대시보드/서비스롤).
+drop policy if exists respondents_insert_any on public.respondents;
+create policy respondents_insert_any on public.respondents for insert to anon, authenticated with check (true);
+create index if not exists idx_respondents_ctx on public.respondents(ctx, created_at);
+
+-- ─────────────────────────────────────────────
+-- 10. 대기자 명단 — waitlist (오픈 알림 신청)
+--    "써보고 나중에 알림 받고 싶은 사람"에게서 받는 것들.
+--    ⚠ 연락처(contact)는 알림 발송이 목적이라 해시가 아닌 실값을 옵트인으로 저장한다.
+--       (study_events 의 lead_capture 는 집계용 해시/카운트 신호, 여기 waitlist 는 실제 연락용.)
+--    무엇을(topics)·어디서(region_id)·어떤 취향(interests)·언제(time_pref) 알림받고 싶은지까지 받아
+--    실제 오픈 시 '매칭된 사람에게 먼저' 알릴 수 있게 한다. 초기화(0번) DROP 대상 아님.
+-- ─────────────────────────────────────────────
+create table if not exists public.waitlist (
+  id         uuid primary key default gen_random_uuid(),
+  tester     text,                          -- 익명 테스터 id
+  role       text not null default 'participant',  -- participant|owner
+  channel    text,                          -- 카톡|전화|이메일
+  contact    text,                          -- 실제 연락처(오픈 알림 목적·옵트인)
+  region_id  text,                          -- 원하는(수요)/가게(공급) 지역
+  interests  text[] not null default '{}',  -- 관심 카테고리(수요) / 열고 싶은 프로그램(공급)
+  topics     text[] not null default '{}',  -- 받고 싶은 소식(동네 오픈·관심 모임·정식 오픈 등)
+  time_pref  text,                          -- 원하는 요일·시간대 / 연락 가능 시간
+  note       text,
+  ctx        text,
+  created_at timestamptz not null default now()
+);
+alter table public.waitlist enable row level security;
+drop policy if exists waitlist_insert_any on public.waitlist;
+create policy waitlist_insert_any on public.waitlist for insert to anon, authenticated with check (true);
+create index if not exists idx_waitlist_role on public.waitlist(role, region_id, created_at);
