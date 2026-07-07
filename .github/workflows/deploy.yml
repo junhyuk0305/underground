@@ -31,15 +31,23 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Generate config.js from secrets
+      # config.js 는 레포에 커밋돼 있다(anon publishable 키·RLS 보호라 공개 안전).
+      # 그 파일이 있으면 그대로 쓰고(덮어쓰지 않음), 없을 때만 secret 으로 생성한다.
+      # ⚠ 예전엔 무조건 secret 으로 덮어써서, secret 미설정 시 빈 키가 배포돼 설문 수집이 죽었었다.
+      - name: Ensure config.js (use committed file; fallback to secrets)
         run: |
-          cat > config.js <<EOF
+          if [ -f config.js ] && grep -q 'SUPABASE_ANON_KEY: *"[^"]\+"' config.js; then
+            echo "committed config.js 사용(키 존재) — 덮어쓰지 않음"
+          else
+            echo "config.js 없음/빈 키 → secret 으로 생성"
+            cat > config.js <<EOF
           window.UG_CONFIG = {
             SUPABASE_URL: "${{ secrets.SUPABASE_URL }}",
             SUPABASE_ANON_KEY: "${{ secrets.SUPABASE_ANON_KEY }}",
             KAKAO_JS_KEY: "06670250d439d9f5ddd143faeb0141cf"
           };
           EOF
+          fi
 
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
