@@ -5,10 +5,15 @@ function loadSdk(key){
   if (window.kakao && window.kakao.maps) return Promise.resolve(true);
   if (sdkPromise) return sdkPromise;
   sdkPromise = new Promise((resolve) => {
+    let done = false;
+    const finish = (ok) => { if (done) return; done = true; clearTimeout(timer); if (!ok) sdkPromise = null; resolve(ok); };
+    // 도메인 미등록/오프라인/느린 네트워크에선 onload·onerror 가 아예 안 오거나
+    // kakao.maps.load() 콜백이 영영 안 불릴 수 있다 → 2초 타임아웃으로 반드시 폴백.
+    const timer = setTimeout(() => finish(false), 2000);
     const s = document.createElement('script');
     s.src = `//dapi.kakao.com/v2/maps/sdk.js?appkey=${key}&autoload=false&libraries=clusterer`;
-    s.onload = () => { try { window.kakao.maps.load(() => resolve(true)); } catch(e){ resolve(false); } };
-    s.onerror = () => resolve(false);
+    s.onload = () => { try { window.kakao.maps.load(() => finish(true)); } catch(e){ finish(false); } };
+    s.onerror = () => finish(false);
     document.head.appendChild(s);
   });
   return sdkPromise;

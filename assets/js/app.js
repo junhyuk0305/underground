@@ -210,9 +210,13 @@ function showLoading(msg='불러오는 중…'){
   if(!el){ el=document.createElement('div'); el.id='appLoading'; el.className='app-loading'; $shell.appendChild(el); }
   el.innerHTML=`<div class="app-loading__spin" aria-hidden="true"></div><div class="app-loading__msg">${esc(msg)}</div>`;
   el.setAttribute('role','status'); el.setAttribute('aria-live','polite');
-  requestAnimationFrame(()=>el.classList.add('show'));
+  // '숨김 요청' 플래그. 아래 rAF 는 다음 프레임에 실행되는데, 그 사이 mock 흐름은
+  // 마이크로태스크로 순식간에 끝나 hideLoading() 이 먼저 호출된다. 플래그가 없으면
+  // rAF 가 뒤늦게 .show 를 다시 붙여 오버레이가 영영 안 사라지는 무한로딩이 된다.
+  el.dataset.hide='';
+  requestAnimationFrame(()=>{ if(el.dataset.hide!=='1') el.classList.add('show'); });
 }
-function hideLoading(){ const el=document.getElementById('appLoading'); if(el) el.classList.remove('show'); }
+function hideLoading(){ const el=document.getElementById('appLoading'); if(el){ el.dataset.hide='1'; el.classList.remove('show'); } }
 
 /* ═══════════ S0 스플래시 ═══════════ */
 function screenSplash(){
