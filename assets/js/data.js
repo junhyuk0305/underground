@@ -470,7 +470,17 @@ const mockDb = {
   async ensureOwnerVenue(name) {
     const s = loadMock();
     if (!s.session) return [];
-    const mine = s.venues.filter(v => v.owner_id === s.session.id);
+    const nm = (name || '').trim();
+    let mine = s.venues.filter(v => v.owner_id === s.session.id);
+    // 오너 데모는 세션 id 가 항상 같아(u_owner_demo) 이전 세션 매장이 localStorage 에 남아 재사용된다.
+    // 새 인테이크에서 다른 가게 이름을 받으면, 예전 매장·요청을 지우고 새 이름으로 다시 시드한다(닉네임 4444/매장 111 불일치 방지).
+    if (mine.length && nm && mine[0].name !== nm) {
+      const ids = new Set(mine.map(v => v.id));
+      s.venues = s.venues.filter(v => !ids.has(v.id));
+      s.meetups = s.meetups.filter(m => !ids.has(m.venue_id));
+      saveMock(s);
+      mine = [];
+    }
     if (mine.length) return mine;
     const rid = s.profile?.region_id || 'r_suwon';
     const region = s.regions.find(r => r.id === rid);
@@ -488,6 +498,19 @@ const mockDb = {
     seedPendingFor(s, v);   // 승인 대기 요청 3건 + 진행중 1건 시드
     saveMock(s);
     return [v];
+  },
+  // 데모 사장님 계정(u_owner_demo)에 남은 매장·요청·정산을 모두 비운다.
+  // 오너 데모는 세션 id 가 항상 같아 mock DB(localStorage)에 이전 응답자 상태가 남는다.
+  // 새 응답자가 데모를 '처음' 시작할 때만 호출해(리로드·탐색 중엔 승인 내역 보존) 응답자별로 깨끗한 시작을 보장한다.
+  async clearOwnerVenues() {
+    const s = loadMock();
+    if (!s.session) return;
+    const ids = new Set(s.venues.filter(v => v.owner_id === s.session.id).map(v => v.id));
+    if (!ids.size) return;
+    s.venues = s.venues.filter(v => !ids.has(v.id));
+    s.meetups = s.meetups.filter(m => !ids.has(m.venue_id));
+    if (s.profile) s.profile.is_venue_owner = false;
+    saveMock(s);
   },
   // 내 매장에 들어온 개설 요청(승인 대기)
   async venueRequests() {
@@ -647,6 +670,7 @@ const liveDb = {
   },
   // 실 DB 에서는 데모 시드를 넣지 않는다(실제 매장 등록 흐름을 그대로 탄다). 기존 매장만 반환.
   async ensureOwnerVenue() { try { return await this.myVenues(); } catch (e) { return []; } },
+  async clearOwnerVenues() { /* 라이브는 실 계정별 데이터 — 데모 리셋 없음(실 매장 삭제 금지) */ },
   async registerVenue(payload) {
     const { data: { user } } = await supabase.auth.getUser();
     const profile = await this.getProfile();

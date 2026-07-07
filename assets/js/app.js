@@ -326,7 +326,9 @@ function screenPick(){
 async function beginOwnerDemo(intake={}){
   showLoading('사장님 센터를 준비하고 있어요…');
   // 오너 계측을 로컬에 남기기 위해 오너 세션 준비(지갑 없음). 참여자 세션이 남아있으면 새로 시작.
-  const cur=getStudy(); if(!cur || cur.role!=='owner'){ resetStudy(); startOwnerStudy(); if(intake&&Object.keys(intake).length) saveOwnerIntake(intake); }
+  // fresh=이 데모를 '처음' 여는 순간(리로드·탐색 재진입이 아님). 이때만 이전 데모 매장을 정리한다.
+  const cur=getStudy(); const fresh = !cur || cur.role!=='owner';
+  if(fresh){ resetStudy(); startOwnerStudy(); if(intake&&Object.keys(intake).length) saveOwnerIntake(intake); }
   // 라이브면 ?mock=1 로 재진입(참여자 beginPersona 와 동일 패턴). 재진입 후 스플래시→여기로 다시 온다.
   if(!IS_MOCK){ const u=new URL(window.location.href); u.searchParams.set('mock','1'); return window.location.replace(u.toString()); }
   try{
@@ -334,6 +336,8 @@ async function beginOwnerDemo(intake={}){
     await db.signIn('owner_demo@local');
     await db.verifyResident({ regionId:region, displayName:(intake.nickname||'').trim()||'데모 사장님', interests:[], bio:'', isHost:false });
     await boot();
+    // 처음 시작이면 이전 응답자가 남긴 데모 매장·요청을 정리(오너 계정 id 가 항상 같아 mock DB 에 잔류) → 방금 입력한 매장으로 깨끗이 새로 연다.
+    if(fresh) await db.clearOwnerVenues();
     // 기본 데모 매장 1곳(+개설 요청·진행중·정산) 보장 → 요청함·정산·홈이 처음부터 살아있다
     // 인테이크에서 받은 가게 이름이 있으면 데모 매장 이름으로 그대로 쓴다(처음 생성 시 1회).
     await db.ensureOwnerVenue(intake.storeName);
