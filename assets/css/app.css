@@ -694,6 +694,16 @@ body.admin-wide .ad-rail{display:none!important}
 .ucard{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-lg);padding:15px 16px 16px;box-shadow:var(--sh-card)}
 .ucard__hd{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:5px}
 .ucard__id{font-size:14px;font-weight:800;color:var(--t-hi);word-break:break-all}
+.ucard__tid{font-size:10.5px;color:var(--t-4);font-weight:600;margin-left:auto;word-break:break-all}
+/* 클릭 타임라인(펼침) — 이 사람이 어떤 버튼을 순서대로 눌렀는지 */
+.utl{margin-top:12px;padding-top:12px;border-top:1px solid var(--line)}
+.utl>summary{font-size:11px;font-weight:800;color:var(--brand-soft);cursor:pointer;list-style:none;user-select:none}
+.utl>summary::-webkit-details-marker{display:none}
+.utl__list{margin-top:9px;display:flex;flex-direction:column;gap:5px;max-height:280px;overflow-y:auto}
+.utl__row{display:flex;gap:9px;align-items:baseline;font-size:11.5px;line-height:1.4}
+.utl__t{flex:0 0 54px;color:var(--t-4);font-variant-numeric:tabular-nums;font-weight:600}
+.utl__ev{flex:0 0 auto;color:var(--t-1);font-weight:700}
+.utl__d{color:var(--brand-soft);font-weight:600;word-break:break-all}
 .ubadge{font-size:10.5px;font-weight:800;padding:2px 8px;border-radius:999px;background:var(--surface-2);color:var(--t-2);border:1px solid var(--line)}
 .ubadge--own{background:rgba(254,103,33,.14);color:var(--brand-soft);border-color:var(--brand-line)}
 .ubadge--par{background:rgba(55,217,160,.12);color:var(--pos);border-color:rgba(55,217,160,.3)}

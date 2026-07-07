@@ -1,5 +1,5 @@
 /* 언더그라운드맵 — 앱 라우팅·렌더 (v0.2 리빌드 · 지도 중심)
- * 화면: 스플래시 → 회원가입(멀티스텝) → 지도 → 매장상세(진행중/공간만) → 호스트개설/참여신청 → 마이/이용권
+ * 화면: 스플래시 → 인테이크(#/study) → 지도 → 매장상세(진행중/공간만) → 호스트개설/참여신청 → 마이/이용권
  */
 import { db, IS_MOCK } from './data.js';
 import { PASS_PRODUCTS, INTEREST_OPTIONS } from './data.js';
@@ -10,7 +10,7 @@ import { RESEARCH_ON, STUDY_BUDGET, STUDY_ROLE, STUDY_CTX, PERSONAS, personaByKe
          balance, canAfford, charge, logEvent, endStudy, summary,
          REASON_MEETUP, REASON_PASS, REASON_SKIP } from './research.js';
 
-const state = { session:null, profile:null, regions:[], viewable:[], viewRegion:null, mapFilter:'all', signup:null, lastJoin:null, mySeg:'join', ownerMode:false };
+const state = { session:null, profile:null, regions:[], viewable:[], viewRegion:null, mapFilter:'all', lastJoin:null, mySeg:'join', ownerMode:false };
 
 const $screen = document.getElementById('screen');
 const $appbar = document.getElementById('appbar');
@@ -275,8 +275,8 @@ function nextFromSession(){
   if(RESEARCH_ON && !getStudy() && !state.profile?.resident_verified){
     return go('#/study');
   }
-  if(!state.session) return go('#/signup');
-  if(!state.profile?.resident_verified) return go('#/signup');
+  if(!state.session) return go('#/study');
+  if(!state.profile?.resident_verified) return go('#/study');
   go('#/map');
 }
 /* 계정 선택 — 어떤 계정으로 테스트할지 고르는 큰 카드(참여자 / 사장님).
@@ -349,86 +349,6 @@ async function beginOwnerDemo(intake={}){
   }catch(e){ hideLoading(); toast(e.message,'err'); go('#/study'); }   // 이메일 회원가입으로 새지 않도록 초기화면으로
 }
 
-/* ═══════════ S1 회원가입 (멀티스텝) ═══════════ */
-function regionOptions(sel){
-  const byMetro={}; state.regions.forEach(r=>{(byMetro[r.metro]=byMetro[r.metro]||[]).push(r);});
-  return Object.entries(byMetro).map(([metro,rs])=>`<optgroup label="${esc(metro)}">${rs.map(r=>`<option value="${r.id}" ${r.id===sel?'selected':''}>${esc(r.name)}</option>`).join('')}</optgroup>`).join('');
-}
-function screenSignup(){
-  renderAppbar({title:'시작하기', back:false}); renderTabbar(null); setAdsVisible(false);
-  if(!state.signup) state.signup={ step: state.session?1:0, email:'', nickname:'', interests:new Set(), regionId:'', agree:false };
-  const su=state.signup;
-  if(state.session && su.step===0) su.step=1;
-  renderSignupStep();
-}
-function stepDots(n,total){ return `<div class="steps">${Array.from({length:total},(_,i)=>`<span class="dot ${i<n?'on':''}"></span>`).join('')}</div>`; }
-function renderSignupStep(){
-  const su=state.signup;
-  const firstStep = state.session ? 1 : 0;
-  // 단계별 뒤로가기: 이전 스텝으로. 첫 스텝에선 뒤로 버튼 숨김(미아 방지).
-  renderAppbar({ title:'시작하기', back: su.step>firstStep,
-    onBack: ()=>{ su.step = Math.max(firstStep, su.step-1); renderSignupStep(); } });
-  if(su.step===0){ // 이메일
-    fscr(`<h1 class="dtitle" style="margin-top:8px">이 동네에 이메일로<br>조용히 들어오기</h1>
-      <p class="hint" style="margin-bottom:18px">비밀번호 없이, 메일로 온 링크 한 번이면 돼요.</p>
-      <div class="field"><label>이메일</label><input class="input" id="email" type="email" placeholder="you@example.com" value="${esc(su.email)}"></div>
-      <p class="hint" style="margin-top:2px">${IS_MOCK?'체험 모드: 메일 발송 없이 바로 입장합니다.':'메일함의 링크를 누르면 이 동네가 열립니다.'}</p>`,
-      `<button class="btn btn--lg btn--primary btn--block" id="go">${IS_MOCK?'체험 입장':'매직링크 받기'}</button>`);
-    document.getElementById('go').onclick=async()=>{
-      const email=document.getElementById('email').value.trim(); if(!email) return toast('이메일을 입력해 주세요.','err');
-      su.email=email;
-      try{ const r=await db.signIn(email);
-        if(IS_MOCK){ await boot(); su.step=1; renderSignupStep(); }
-        else if(r.magicLink) toast('입장 링크를 보냈어요. 메일함을 확인해 주세요.','ok');
-      }catch(e){ toast(e.message,'err'); }
-    };
-    return;
-  }
-  if(su.step===1){ // 닉네임
-    fscr(`${stepDots(1,4)}<h1 class="dtitle">동네에서 불릴 이름</h1>
-      <div class="field"><input class="input" id="nick" placeholder="닉네임 (2~16자)" value="${esc(su.nickname)}"></div>
-      <p class="hint">실명 아니어도 돼요. 언제든 바꿀 수 있어요.</p>`,
-      `<button class="btn btn--lg btn--primary btn--block" id="next">다음</button>`);
-    document.getElementById('next').onclick=()=>{ const v=document.getElementById('nick').value.trim(); if(v.length<2) return toast('닉네임을 입력해 주세요.','err'); su.nickname=v; su.step=2; renderSignupStep(); };
-    return;
-  }
-  if(su.step===2){ // 관심사
-    fscr(`${stepDots(2,4)}<h1 class="dtitle">무엇에 끌리세요?</h1>
-      <p class="hint" style="margin-bottom:16px">관심사에 맞는 이 동네 모임을 먼저 보여줄게요. (1~5개)</p>
-      <div class="chips" id="ints">${INTEREST_OPTIONS.map(o=>`<button class="chip" data-i="${esc(o)}" aria-pressed="${su.interests.has(o)}">${esc(o)}</button>`).join('')}</div>`,
-      `<button class="btn btn--lg btn--primary btn--block" id="next">다음</button>`);
-    document.querySelectorAll('#ints .chip').forEach(el=>el.onclick=()=>{ const i=el.dataset.i; if(su.interests.has(i))su.interests.delete(i); else{ if(su.interests.size>=5) return toast('최대 5개까지 선택할 수 있어요.','err'); su.interests.add(i);} el.setAttribute('aria-pressed',su.interests.has(i)); });
-    document.getElementById('next').onclick=()=>{ if(su.interests.size<1) return toast('관심사를 하나 이상 골라 주세요.','err'); su.step=3; renderSignupStep(); };
-    return;
-  }
-  if(su.step===3){ // 지역·거주
-    fscr(`${stepDots(3,4)}<h1 class="dtitle">어느 동네에 사세요?</h1>
-      <p class="hint" style="margin-bottom:16px">처음엔 시 단위로 지도가 열려요. (서울만 구 단위 — 예: 마포구)</p>
-      <div class="field"><label>거주 지역</label>${regionTrigger('region', su.regionId)}</div>
-      <label class="check"><input type="checkbox" id="agree" ${su.agree?'checked':''}><span class="box">${ICON.check}</span><span>네, <b>이 지역에 살고 있어요</b></span></label>
-      <div class="hl"><span>${ICON.pin}</span><div class="t">지금은 <b>자기신고</b>로 열어드려요. 신분증·주소 인증은 곧 추가돼요.</div></div>`,
-      `<button class="btn btn--lg btn--primary btn--block" id="next">다음</button>`);
-    document.getElementById('agree').addEventListener('change', e=>{ su.agree=e.target.checked; });
-    document.getElementById('region').onclick=()=>openRegionPicker({ selected:su.regionId, title:'어느 동네에 사세요?',
-      onPick:(id)=>{ su.regionId=id; const b=document.getElementById('region'); b.classList.remove('is-empty'); b.querySelector('.rpick__lbl').textContent=regionName(id); } });
-    document.getElementById('next').onclick=()=>{ if(!su.regionId) return toast('거주 지역을 선택해 주세요.','err'); if(!document.getElementById('agree').checked) return toast('거주 확인에 동의해 주세요.','err'); su.step=4; renderSignupStep(); };
-    return;
-  }
-  if(su.step===4){ // 위치
-    fscr(`${stepDots(4,4)}<h1 class="dtitle">지금 있는 곳을 잠깐 볼게요</h1>
-      <p class="hint">가까운 동네 모임을 위로 올려주고, 거주 확인을 도와요. 안 켜도 이용엔 문제없어요.</p>`,
-      `<button class="btn btn--lg btn--primary btn--block" id="allow">위치 허용</button>
-       <button class="btn btn--md btn--neutral btn--block" id="later">나중에</button>`);
-    const finish=async()=>{ try{
-        const p=await db.verifyResident({ regionId:su.regionId, displayName:su.nickname, interests:[...su.interests], bio:'', isHost:false });
-        state.profile=p; state.viewRegion=su.regionId; state.signup=null;
-        gateOpen(regionName(su.regionId));
-      }catch(e){ toast(e.message,'err'); } };
-    document.getElementById('allow').onclick=()=>{ if(navigator.geolocation){ navigator.geolocation.getCurrentPosition(finish, finish, {timeout:3000}); } else finish(); };
-    document.getElementById('later').onclick=finish;
-    return;
-  }
-}
 function gateOpen(name){
   renderAppbar(null); renderTabbar(null); setAdsVisible(false);
   scrRaw(`<div class="gate"><div class="gate__inner">
@@ -1347,7 +1267,7 @@ function refreshWallet(){
   const mb=document.getElementById('modebar'); if(!mb) return;
   const hash=window.location.hash||'';
   // 연구 모드가 아니거나, 오너 세션이거나, 지갑을 숨겨야 하는 화면에서는 손대지 않음
-  if(!getStudy() || getStudy().role==='owner' || /#\/(splash|study|survey|lead|thanks|results|signup|owner-|admin)/.test(hash)) return;
+  if(!getStudy() || getStudy().role==='owner' || /#\/(splash|study|survey|lead|thanks|results|owner-|admin)/.test(hash)) return;
   mb.style.display='';
   mb.innerHTML=`<span class="wpill">🪙 크레딧 <b>${won(balance())}</b></span><button class="wend" data-end>테스트 끝내기</button>`;
   const b=mb.querySelector('[data-end]'); if(b) b.onclick=endStudyFlow;
@@ -1616,21 +1536,27 @@ let adminImported = [];   // 불러온 JSON 세션들
 async function fetchRemoteSessions(){
   const cfg = (typeof window!=='undefined' && window.UG_CONFIG) || {};
   if(!cfg.SUPABASE_URL || String(cfg.SUPABASE_URL).includes('YOUR-')) return [];
-  try{
-    const { createClient } = await import('https://esm.sh/@supabase/supabase-js@2');
-    const sb = createClient(cfg.SUPABASE_URL, cfg.SUPABASE_ANON_KEY);
-    const { data, error } = await sb.from('study_events').select('*').order('created_at',{ascending:true});
-    if(error || !data) return [];
-    const map={};
-    data.forEach(r=>{ const t=r.tester|| (r.role==='owner'?'owner-remote':'?'); (map[t]=map[t]||{tester:t,persona:r.persona,role:r.role||'participant',ctx:r.ctx||null,budget:30000,spent:0,events:[],_src:'remote'});
-      map[t].events.push({type:r.type,payload:r.payload||{},role:r.role,ctx:r.ctx,at:r.created_at});
-      if(r.persona) map[t].persona=r.persona;
-      if(r.role) map[t].role=r.role;
-      if(r.ctx) map[t].ctx=r.ctx;
-      if(r.type==='spend') map[t].spent += Number(r.payload?.price||0);
-    });
-    return Object.values(map);
-  }catch(e){ return []; }
+  // CDN 무의존: supabase-js 없이 REST(fetch)로 읽는다(발표장 esm.sh 차단에도 대시보드 동작).
+  const H = { apikey:cfg.SUPABASE_ANON_KEY, Authorization:`Bearer ${cfg.SUPABASE_ANON_KEY}` };
+  const get = async (path)=>{ try{ const r=await fetch(`${cfg.SUPABASE_URL}/rest/v1/${path}`, {headers:H}); return r.ok ? await r.json() : []; }catch(e){ return []; } };
+  const [data, resp] = await Promise.all([
+    get('study_events?select=*&order=created_at.asc&limit=20000'),
+    get('respondents?select=tester,nickname,age_range,gender,region_id,role&order=created_at.asc&limit=20000'),
+  ]);
+  const who={}; (resp||[]).forEach(r=>{ if(r.tester && !who[r.tester]) who[r.tester]=r; });   // tester→응답자 기본정보(닉네임)
+  const map={};
+  (data||[]).forEach(r=>{ const t=r.tester|| (r.role==='owner'?'owner-remote':'?'); (map[t]=map[t]||{tester:t,persona:r.persona,role:r.role||'participant',ctx:r.ctx||null,budget:30000,spent:0,events:[],_src:'remote'});
+    map[t].events.push({type:r.type,payload:r.payload||{},role:r.role,ctx:r.ctx,at:r.created_at});
+    if(r.persona) map[t].persona=r.persona;
+    if(r.role) map[t].role=r.role;
+    if(r.ctx) map[t].ctx=r.ctx;
+    if(r.type==='spend') map[t].spent += Number(r.payload?.price||0);
+  });
+  // 이벤트 없이 인테이크만 남긴 응답자도 카드로 보이게(닉네임/기본정보)
+  (resp||[]).forEach(r=>{ if(r.tester && !map[r.tester]) map[r.tester]={tester:r.tester,persona:null,role:r.role||'participant',ctx:null,budget:30000,spent:0,events:[],_src:'remote'}; });
+  // 각 세션에 닉네임·기본정보 붙이기
+  Object.values(map).forEach(s=>{ const w=who[s.tester]; if(w){ s.nickname=w.nickname||null; s.ageRange=w.age_range||null; s.gender=w.gender||null; s.region=w.region_id||null; } });
+  return Object.values(map);
 }
 function mergeSessions(list){ const m=new Map();
   list.filter(Boolean).forEach(s=>{ if(!s.tester) return; const prev=m.get(s.tester);
@@ -1742,6 +1668,42 @@ const rankRows=(obj,suffix='')=>{ const ent=Object.entries(obj).sort((a,b)=>b[1]
 const pctTxt=x=> x==null?'—':Math.round(x*100)+'%';
 
 /* 세션 하나(테스터 1명)의 행동·설문을 표시용으로 정규화 */
+/* 이벤트(버튼/행동) 한글 라벨 — admin 타임라인용 */
+const EVENT_LABELS = {
+  study_start:'설문 시작', onboard_react:'온보딩 반응', meetup_view:'모임 열어봄', meetup_interest:'모임 찜',
+  spend:'크레딧 사용', abandon:'담다 포기', wtp_response:'지불의향 응답', solo_response:'혼자옴 응답',
+  lead_capture:'알림 신청', study_end:'설문 종료', survey_response:'설문 제출', logout:'나가기', host_switch:'호스트 전환',
+  owner_intent:'호스트 관심', owner_intake:'사장님 정보입력', owner_demo_start:'사장님 데모 시작',
+  owner_screen_view:'화면 봄', owner_survey_open:'설문 진입', owner_request_decide:'요청 수락/거절',
+  owner_trial_commit:'시범 약정', owner_lead:'사장님 리드',
+};
+const _evTime = at => (typeof at==='string' && at.length>=19) ? at.slice(11,19) : '';   // KST HH:MM:SS(문자열 그대로)
+function _evDetail(e){
+  const p=e.payload||{};
+  switch(e.type){
+    case 'onboard_react': return [p.beat,p.tag].filter(Boolean).join('·');
+    case 'meetup_view': case 'meetup_interest': return p.category||'';
+    case 'spend': return `${p.kind==='pass'?'이용권 ':''}${p.category||p.title||''} ${p.price?won(p.price):''}`.trim();
+    case 'abandon': return p.category||(p.kind==='pass'?'이용권':'');
+    case 'owner_screen_view': return `${p.screen||''}${p.dwell_ms?` ${Math.round(p.dwell_ms/1000)}s`:''}`.trim();
+    case 'owner_request_decide': return p.decision==='approve'?'수락':'거절';
+    case 'owner_trial_commit': return p.program||'';
+    case 'survey_response': return p.skipped?'건너뜀':'완료';
+    case 'wtp_response': return p.real_wtp_won!=null?won(p.real_wtp_won):'';
+    case 'solo_response': return p.came_alone?'혼자':'같이';
+    case 'lead_capture': return (p.interests||[]).join(',');
+    case 'owner_intake': return [p.store_name,p.category].filter(Boolean).join('·');
+    case 'study_end': return p.leftover!=null?`잔액 ${won(p.leftover)}`:'';
+    default: return '';
+  }
+}
+/* 이 사람이 '어떤 버튼을 순서대로 눌렀는지' 타임라인(펼침) */
+function renderTimeline(evs){
+  if(!evs || !evs.length) return '';
+  const rows = evs.map(e=>{ const lab=EVENT_LABELS[e.type]||e.type; const d=_evDetail(e);
+    return `<div class="utl__row"><span class="utl__t">${esc(_evTime(e.at))}</span><span class="utl__ev">${esc(lab)}</span>${d?`<span class="utl__d">${esc(d)}</span>`:''}</div>`; }).join('');
+  return `<details class="utl"><summary>🖱️ 클릭 타임라인 · ${evs.length}개</summary><div class="utl__list">${rows}</div></details>`;
+}
 function sessionSummary(s){
   const evs=s.events||[]; const owner=isOwnerSession(s);
   const buys=evs.filter(e=>e.type==='spend').map(e=>e.payload||{});
@@ -1757,7 +1719,14 @@ function sessionSummary(s){
     if(e.type==='owner_intake') intake=p;
     else if(e.type==='owner_request_decide'){ if(p.decision==='approve') decisions.approve++; else decisions.reject++; }
     else if(e.type==='owner_trial_commit'){ if(p.program) trials.push(p.program); } });
+  const lastAt = evs.length ? evs[evs.length-1].at : null;
+  // 닉네임/기본정보: 원격 조인(s.nickname 등) 우선, 없으면 인테이크 payload 폴백
+  const nickname = s.nickname || intake?.nickname || null;
+  const ageRange = s.ageRange || intake?.ageRange || null;
+  const gender   = s.gender   || intake?.gender   || null;
+  const region   = s.region   || intake?.regionId || null;
   return { tester:s.tester||'(무명)', owner, persona:s.persona, ctx:s.ctx, src:s._src||'?',
+    nickname, ageRange, gender, region, lastAt, events:evs,
     spent, buys, sv, solo, wtp, lead, views, interest, intake, decisions, trials, nEvents:evs.length };
 }
 /* 테스터 1명 카드 — 요약 + 개별 설문 응답(질문 원문과 함께) */
@@ -1766,7 +1735,8 @@ function renderUserCard(s){
   const role = u.owner?'owner':'participant';
   const badge = u.owner ? `<span class="ubadge ubadge--own">사장님</span>` : `<span class="ubadge ubadge--par">참여자</span>`;
   const personaTxt = u.persona==='mover'?'이동 청년':u.persona==='local'?'지방 청년':'';
-  const meta=[personaTxt, u.ctx?`ctx:${esc(u.ctx)}`:'', `출처:${u.src}`, `이벤트 ${u.nEvents}`].filter(Boolean).join(' · ');
+  const basics=[u.ageRange, u.gender, u.region?regionName(u.region):''].filter(Boolean).join('·');
+  const meta=[basics, personaTxt, u.ctx?`ctx:${esc(u.ctx)}`:'', u.lastAt?`마지막 ${esc(_evTime(u.lastAt))}`:'', `출처:${u.src}`, `이벤트 ${u.nEvents}`].filter(Boolean).join(' · ');
 
   let behavior='';
   if(!u.owner){
@@ -1806,10 +1776,11 @@ function renderUserCard(s){
   }
 
   return `<div class="ucard">
-    <div class="ucard__hd"><span class="ucard__id">${esc(u.tester)}</span>${badge}</div>
+    <div class="ucard__hd"><span class="ucard__id">${esc(u.nickname||'(닉네임 없음)')}</span>${badge}<span class="ucard__tid">${esc(u.tester)}</span></div>
     <div class="ucard__meta">${meta}</div>
     ${behavior}
     ${qa}
+    ${renderTimeline(u.events)}
   </div>`;
 }
 /* 사용자별 응답 — 참여자·사장님 그룹으로 카드 나열 */
@@ -1822,10 +1793,10 @@ function renderPerUser(sessions){
 /* 사용자별 응답을 CSV(엑셀 호환)로 — 한 행 = 테스터 1명 */
 function buildAdminCsv(sessions){
   const allQ=[...new Set([...surveyQuestions('participant'),...surveyQuestions('owner')].map(q=>q.id))];
-  const head=['tester','role','persona','ctx','src','spent','buys','pass','lead',...allQ];
+  const head=['nickname','tester','role','age','gender','region','ctx','src','spent','buys','pass','lead',...allQ];
   const cell=v=>{ const s=String(v==null?'':v).replace(/"/g,'""'); return /[",\n]/.test(s)?`"${s}"`:s; };
   const rows=sessions.map(s=>{ const u=sessionSummary(s); const ans=(u.sv&&u.sv.answers)||{};
-    return [u.tester,u.owner?'owner':'participant',u.persona||'',u.ctx||'',u.src,u.spent,u.buys.length,
+    return [u.nickname||'',u.tester,u.owner?'owner':'participant',u.ageRange||'',u.gender||'',u.region?regionName(u.region):'',u.ctx||'',u.src,u.spent,u.buys.length,
       u.buys.some(b=>b.kind==='pass')?1:0,u.lead?1:0, ...allQ.map(q=>ans[q]!=null?ans[q]:'')]; });
   return '﻿'+[head,...rows].map(r=>r.map(cell).join(',')).join('\n');
 }
@@ -2009,8 +1980,8 @@ async function route(){
   const [,path,arg]=hash.match(/^#\/([^/]+)\/?(.*)$/)||[,'splash',''];
   if(!OWNER_ROUTES.includes(path)) flushOwnerDwell();   // 사장님 화면을 떠나면 체류 기록 마감
   if(AUTHED.includes(path)){
-    if(!state.session) return go('#/signup');
-    if(!state.profile?.resident_verified) return go('#/signup');
+    if(!state.session) return go('#/study');
+    if(!state.profile?.resident_verified) return go('#/study');
   }
   // 사장(공급) 세션은 참여자 기능(이용권)에 접근하지 않는다 → 사장님 홈으로 되돌림
   if(path==='passes' && (getStudy()?.role==='owner' || (state.ownerMode && STUDY_ROLE==='owner'))) return go('#/owner-home');
@@ -2039,7 +2010,6 @@ async function route(){
     case 'lead': return screenLead();
     case 'thanks': return screenThanks();
     case 'results': return screenResults();
-    case 'signup': return screenSignup();
     case 'map': return screenMap();
     case 'venue': return screenVenue(arg);
     case 'host-apply': return screenHostApply(arg);
