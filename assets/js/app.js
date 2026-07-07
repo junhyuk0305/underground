@@ -1561,8 +1561,11 @@ function mergeSessions(list){ const m=new Map();
     if(!prev || (s.events?.length||0) > (prev.events?.length||0)) m.set(s.tester, s); });
   return [...m.values()];
 }
-/* 세션이 공급(오너)인지 판별 — 세션 role 또는 owner_* 이벤트 존재 */
-const isOwnerSession = s => s.role==='owner' || (s.events||[]).some(e=> e.role==='owner' || (e.type||'').startsWith('owner_') || (e.type==='survey_response' && e.payload?.role==='owner'));
+/* 세션이 공급(오너)인지 판별 — 권위 있는 role 컬럼만 신뢰(respondents/study_events.role).
+ * ⚠ 이벤트 타입 접두(owner_*)로 판정하면 안 된다: '사용 설문 참여' FAB(owner_survey_open)은
+ *   참여자 화면에도 뜨고, 참여자가 실수로 사장 화면에 들어가면 owner_screen_view 가 참여자 세션에
+ *   섞인다 → 참여자가 사장으로 오분류됨(곰 케이스). role 은 logEvent 가 세션 기준으로 찍으므로 정확하다. */
+const isOwnerSession = s => s.role==='owner' || (s.events||[]).some(e => e.role==='owner');
 
 function computeMetrics(all){
   const ownerSessions = all.filter(isOwnerSession);
@@ -1985,6 +1988,9 @@ async function route(){
   // '나(me)'는 공유 화면이라 예외. 여기서 안 막으면 오너가 '나'에서 새로고침→참여자 탭바→지도 탭으로 새어나간다.
   if((getStudy()?.role==='owner' || (state.ownerMode && STUDY_ROLE==='owner'))
       && ['map','my','passes','venue','host-apply','host-browse','joined'].includes(path)) return go('#/owner-home');
+  // 역으로: 참여자 세션은 사장(공급) 화면에 들어가지 않는다 → 지도로 되돌림.
+  // 안 막으면 참여자가 사장 화면을 열 때 owner_screen_view 가 참여자 세션에 섞여 admin 에서 사장으로 오분류된다(곰 케이스).
+  if(getStudy()?.role==='participant' && OWNER_ROUTES.includes(path)) return go('#/map');
   // 모드 동기화: 참여자 탭 진입 시 사장님 모드 해제. 공유 화면 'me'는 오너 세션이면 사장님 모드로 유지(새로고침·직접진입 대비).
   if(OWNER_ROUTES.includes(path)){ state.ownerMode=true; setTimeout(refreshOwnerBar,0); }
   else if(path==='me' && (getStudy()?.role==='owner' || (state.ownerMode && STUDY_ROLE==='owner'))){ state.ownerMode=true; setTimeout(refreshOwnerBar,0); }
