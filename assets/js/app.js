@@ -1108,7 +1108,7 @@ function ownerLeadModal(){   // L4
         <div class="chips" id="otopics">${OWNER_TOPICS.map(t=>`<button type="button" class="chip" data-v="${esc(t)}" aria-pressed="${t===OWNER_TOPICS[0]}">${esc(t)}</button>`).join('')}</div>
         <div class="sectitle">연락은 언제가 편하세요?</div>
         <div class="chips" id="ocall">${OWNER_CALL_TIME.map(t=>`<button type="button" class="chip" data-v="${esc(t)}" aria-pressed="false">${esc(t)}</button>`).join('')}</div>
-        <div class="sectitle">이메일로 알려드릴게요 <span class="sub">· 선택</span></div>
+        <div class="sectitle">이메일로 알려드릴게요 <span class="sub">· 필수</span></div>
         <div class="field" style="margin-top:8px"><input class="input" id="oval" type="email" placeholder="you@example.com" autocomplete="off"></div>
       </div>
       <div class="modal__cta">
@@ -1122,14 +1122,14 @@ function ownerLeadModal(){   // L4
   wrap.querySelector('.modal__bd').onclick=()=>{ close(); go('#/survey'); };
   wrap.querySelector('[data-skip]').onclick=()=>{ close(); go('#/survey'); };
   wrap.querySelector('[data-ok]').onclick=()=>{ const v=wrap.querySelector('#oval').value.trim();
-    if(v){   // 이메일을 남긴 경우만 — 실제 대기자(리드) 적재
-      if(!/.+@.+\..+/.test(v)) return toast('이메일 형식을 확인해 주세요.','err');
-      const oi=getOwnerIntake()||{}; const tps=[...topics], timePref=callRef.v||null;
-      logEvent('owner_lead',{ contact_hash:hashContact('이메일:'+v), next_step:'trial_scheduled', topics:tps, call_time:timePref });
-      saveWaitlist({ channel:'이메일', contact:v, regionId:oi.regionId||null, interests:[oi.category].filter(Boolean), topics:tps, timePref });
-      toast('시범 타임 준비되면 연락드릴게요!','ok');
-    }
-    close(); go('#/survey'); };   // 이메일 없이도 제출 가능(리드 집계엔 미포함)
+    // 연락(알림)을 받으려면 이메일이 필수. (원치 않으면 '건너뛰기'로 설문 진행)
+    if(!v) return toast('연락을 받으시려면 이메일을 입력해 주세요.','err');
+    if(!/.+@.+\..+/.test(v)) return toast('이메일 형식을 확인해 주세요.','err');
+    const oi=getOwnerIntake()||{}; const tps=[...topics], timePref=callRef.v||null;
+    logEvent('owner_lead',{ contact_hash:hashContact('이메일:'+v), next_step:'trial_scheduled', topics:tps, call_time:timePref });
+    saveWaitlist({ channel:'이메일', contact:v, regionId:oi.regionId||null, interests:[oi.category].filter(Boolean), topics:tps, timePref });
+    toast('시범 타임 준비되면 연락드릴게요!','ok');
+    close(); go('#/survey'); };
 }
 
 /* ═══════════ 검증(연구) 계층 — 페르소나·지갑·의사결정 로깅 ═══════════ */
@@ -1460,7 +1460,7 @@ function screenLead(){
     <div class="field"><label>어떤 모임이 뜨면 알려드릴까요? <span class="sub">· 복수</span></label>${chipRow('lCats', LEAD_CATS)}</div>
     <div class="field"><label>주로 언제가 편해요?</label>${chipRow('lTime', LEAD_TIMES)}</div>
 
-    <div class="field"><label>알림 받을 이메일 <span class="sub">· 선택</span></label>
+    <div class="field"><label>알림 받을 이메일 <span class="sub">· 필수</span></label>
       <input class="input" id="lval" type="email" placeholder="you@example.com" autocomplete="off"></div>
     <label class="check"><input type="checkbox" id="lok"><span class="box">${ICON.check}</span><span>오픈 알림 받기에 동의해요</span></label>`,
     `<button class="btn btn--lg btn--primary btn--block" id="leadGo">가장 먼저 알림 받기</button>
@@ -1468,15 +1468,15 @@ function screenLead(){
   const scope=$screen;
   bindMulti(scope,'lTopics',topics); bindMulti(scope,'lCats',cats); bindSingle(scope,'lTime',timeRef);
   document.getElementById('leadGo').onclick=()=>{ const v=document.getElementById('lval').value.trim();
-    if(v){   // 이메일을 남긴 경우만 — 동의 필요 + 실제 대기자(리드) 적재
-      if(!/.+@.+\..+/.test(v)) return toast('이메일 형식을 확인해 주세요.','err');
-      if(!document.getElementById('lok').checked) return toast('오픈 알림 수신에 동의해 주세요.','err');
-      const interests=[...cats], tps=[...topics], timePref=timeRef.v||null, region=homeRegion();
-      logEvent('lead_capture',{ channel:'이메일', contact_hash:hashContact('이메일:'+v), topics:tps, interests, time_pref:timePref, region });
-      saveWaitlist({ channel:'이메일', contact:v, regionId:region, interests, topics:tps, timePref });   // 실제 알림용(옵트인)
-      toast('가장 먼저 알려드릴게요!','ok');
-    }
-    go('#/results'); };   // 이메일 없이도 제출 가능(리드 집계엔 미포함)
+    // 알림을 받으려면 이메일이 필수. (알림을 원치 않으면 아래 '건너뛰기'로 통과)
+    if(!v) return toast('알림을 받으시려면 이메일을 입력해 주세요.','err');
+    if(!/.+@.+\..+/.test(v)) return toast('이메일 형식을 확인해 주세요.','err');
+    if(!document.getElementById('lok').checked) return toast('오픈 알림 수신에 동의해 주세요.','err');
+    const interests=[...cats], tps=[...topics], timePref=timeRef.v||null, region=homeRegion();
+    logEvent('lead_capture',{ channel:'이메일', contact_hash:hashContact('이메일:'+v), topics:tps, interests, time_pref:timePref, region });
+    saveWaitlist({ channel:'이메일', contact:v, regionId:region, interests, topics:tps, timePref });   // 실제 알림용(옵트인)
+    toast('가장 먼저 알려드릴게요!','ok');
+    go('#/results'); };
   document.getElementById('leadSkip').onclick=()=>go('#/results');
 }
 
@@ -1519,10 +1519,8 @@ function screenResults(){
         ${s.leads?'<span class="chip chip--tag">오픈 알림 신청</span>':''}
       </div>`:''}
     <div class="divider"></div>
-    <button class="btn btn--md btn--neutral btn--block" id="exp">내 응답 내보내기 (JSON)</button>
-    <button class="btn btn--md btn--soft btn--block" id="again" style="margin-top:10px">다시 하기</button>
+    <button class="btn btn--md btn--soft btn--block" id="again">다시 하기</button>
     <p class="hint center" style="margin-top:12px">${IS_MOCK?'응답은 이 브라우저에 저장됐어요. 팀이 취합합니다.':'응답이 study_events 테이블에 기록됐어요.'}</p>`);
-  const ex=document.getElementById('exp'); if(ex) ex.onclick=()=>{ const blob=new Blob([JSON.stringify(getStudy(),null,2)],{type:'application/json'}); const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='ug_study_'+s.tester+'.json'; a.click(); };
   const ag=document.getElementById('again'); if(ag) ag.onclick=async()=>{ resetStudy(); clearFlags(); clearSurveyDraft(); try{ await db.signOut(); }catch(e){} state.session=null; state.profile=null; state.viewRegion=null; state.viewable=[]; go('#/study'); };
 }
 const trackPct=(s,k)=>{ const t=(s.trackAmt.A||0)+(s.trackAmt.B||0); return t?Math.round((s.trackAmt[k]||0)/t*100):0; };
@@ -1942,12 +1940,12 @@ async function screenAdmin(){
     </div>
     <div class="divider"></div>
     <div class="hl"><span>${ICON.chart}</span><div class="t">데이터 원천 — 이 브라우저 ${srcCounts.local} · 불러온 파일 ${srcCounts.import} · 원격 ${srcCounts.remote}</div></div>
-    ${srcCounts.remote===0?`<p class="hint">원격이 0이면 Supabase 읽기 정책(<b>2026-07-07_admin_read.sql</b>)을 아직 안 돌린 거예요. 그전까진 각자 결과화면의 “내 응답 내보내기” JSON을 모아 불러오세요.</p>`:''}
+    ${srcCounts.remote===0?`<p class="hint">원격이 0이면 Supabase 읽기 정책(<b>2026-07-07_admin_read.sql</b>)을 아직 안 돌린 거예요. 그전까진 Supabase 대시보드에서 직접 조회하세요.</p>`:''}
     <button class="btn btn--md btn--soft btn--block" id="imp" style="margin-top:10px">응답 JSON 더 불러오기</button>
     <button class="btn btn--md btn--neutral btn--block" id="expAll" style="margin-top:10px">집계 원본 내보내기 (JSON)</button>
     <button class="btn btn--md btn--neutral btn--block" id="expCsv" style="margin-top:10px">사용자별 CSV 내보내기 (엑셀)</button>
     <input type="file" id="impF" accept="application/json,.json" multiple hidden>
-    <p class="hint center" style="margin-top:12px">테스터 결과화면의 “내 응답 내보내기” JSON들을 모아 불러오면 전체가 합산돼요.</p>`;
+    <p class="hint center" style="margin-top:12px">응답은 원격(Supabase)에서 자동 합산돼요. 예전에 받아둔 JSON 파일이 있으면 위에서 불러올 수 있어요.</p>`;
   }
   document.querySelectorAll('.adm-tab').forEach(b=>b.onclick=()=>{
     document.querySelectorAll('.adm-tab').forEach(x=>x.classList.toggle('is-on', x===b));
