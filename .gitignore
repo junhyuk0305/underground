@@ -1,5 +1,7 @@
-# ── 시크릿 / 환경설정 (절대 커밋 금지) ──
-config.js
+# ── 시크릿 / 환경설정 ──
+# config.js 는 커밋한다: 담긴 SUPABASE_ANON_KEY 는 client 공개용 publishable 키(RLS 로 보호)라
+# 노출돼도 안전하고, 배포(GitHub Pages 브랜치 서빙)에 반드시 있어야 설문 수집이 된다.
+# ⚠ service_role 등 진짜 비밀키는 절대 config.js 에 넣지 말 것.
 .env
 .env.*
 *.local
