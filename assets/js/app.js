@@ -186,10 +186,33 @@ function renderOwnerTabbar(active, pendingCount=0){
   $tabbar.innerHTML=tabs.map(([k,l,h,ic,bd])=>`<button class="tab" data-h="${h}" aria-current="${k===active}"><span class="tab-ic">${ic}${bd}</span>${l}</button>`).join('');
   $tabbar.querySelectorAll('.tab').forEach(el=>el.onclick=()=>go(el.dataset.h));
 }
+// 사장님 화면 우하단 고정 FAB — '사용 설문 참여'(사장님 설문 #/survey · o1~o6)로 바로 진입.
+// 진입 클릭을 owner_survey_open 으로 남겨 admin123 에 추적한다.
+function renderOwnerFab(show){
+  let fab=document.getElementById('ownerFab');
+  if(!show){ if(fab) fab.remove(); $shell.classList.remove('has-owner-fab'); return; }
+  $shell.classList.add('has-owner-fab');   // 스크롤 콘텐츠 하단 여백 확보(FAB가 CTA 안 가리게)
+  if(fab) return;   // 이미 떠 있으면 중복 생성 안 함
+  fab=document.createElement('button');
+  fab.id='ownerFab'; fab.className='owner-fab'; fab.type='button';
+  fab.setAttribute('aria-label','사용 설문 참여');
+  fab.innerHTML=`<span class="owner-fab__ic">${ICON.chart}</span><span>사용 설문 참여</span>`;
+  fab.onclick=()=>{ logEvent('owner_survey_open', { from:'fab' }); go('#/survey'); };
+  $shell.appendChild(fab);
+}
 const scr = html => { $screen.innerHTML = `<div class="screen__pad">${html}</div>`; };
 const scrRaw = html => { $screen.innerHTML = html; };
 /* 폼 화면: 내용은 위, 주요 버튼(cta)은 하단에 도킹 → 버튼이 얇게 떠 보이는 문제 방지 */
 const fscr = (body, cta) => { $screen.innerHTML = `<div class="form-screen"><div class="fs-body">${body}</div><div class="fs-cta">${cta}</div></div>`; };
+/* 전체 로딩 오버레이 — 세션·데이터가 확실히 들어올 때까지 화면 전체를 덮어 빈 화면 깜빡임을 막는다. */
+function showLoading(msg='불러오는 중…'){
+  let el=document.getElementById('appLoading');
+  if(!el){ el=document.createElement('div'); el.id='appLoading'; el.className='app-loading'; $shell.appendChild(el); }
+  el.innerHTML=`<div class="app-loading__spin" aria-hidden="true"></div><div class="app-loading__msg">${esc(msg)}</div>`;
+  el.setAttribute('role','status'); el.setAttribute('aria-live','polite');
+  requestAnimationFrame(()=>el.classList.add('show'));
+}
+function hideLoading(){ const el=document.getElementById('appLoading'); if(el) el.classList.remove('show'); }
 
 /* ═══════════ S0 스플래시 ═══════════ */
 function screenSplash(){
@@ -211,8 +234,11 @@ function screenSplash(){
 function nextFromSession(){
   // 공급(오너) 데모: ?role=owner → 스플래시 → 사장님 센터(매장·요청 이미 세팅됨) (docs/08 §2)
   // 처음에 계정을 '사장님'으로 고르면 바로 '이미 매장이 등록된' 상태로 들어간다(수동 등록 스킵).
-  if(RESEARCH_ON && STUDY_ROLE==='owner'){
-    return beginOwnerDemo(getOwnerIntake()||{});
+  // 참여자 세션이 이미 살아있으면 URL 의 stale ?role=owner 로 사장님 데모를 다시 띄우지 않는다.
+  if(RESEARCH_ON && STUDY_ROLE==='owner' && getStudy()?.role!=='participant'){
+    // 이미 사장님 인테이크(기본정보)를 받았으면 바로 데모, 아직이면 인테이크 폼(#/study)으로.
+    if(getOwnerIntake()) return beginOwnerDemo(getOwnerIntake());
+    return go('#/study');
   }
   // 검증(연구) 모드: 세션/거주인증 전이면 인테이크(#/study)로 — 역할(참여자/사장) 선택도 이 화면에서 바로 한다
   if(RESEARCH_ON && !getStudy() && !state.profile?.resident_verified){
@@ -249,19 +275,25 @@ function screenPick(){
     scope.querySelectorAll('[data-role]').forEach(x=>x.classList.toggle('is-sel', x.dataset.role===sel));
     goBtn.disabled=false;
   });
-  goBtn.onclick=()=>{
+  goBtn.onclick=async()=>{
     if(!sel) return;
     const u=new URL(window.location.href); u.searchParams.set('role', sel);
-    if(sel==='owner'){ u.hash='#/splash'; return window.location.replace(u.toString()); }
-    // 참여자는 리로드 없이: role 파라미터만 URL 에 반영하고 인테이크로
-    window.history.replaceState({}, '', u.pathname+u.search+'#/study');
-    go('#/study');
+    // 역할을 바꿔 시작하면 이전 역할(사장님↔참여자)의 세션·연구상태를 깨끗이 비우고 풀 리로드로 재진입한다.
+    // 리로드해야 URL 로만 결정되는 STUDY_ROLE 이 방금 고른 역할로 다시 계산된다(사장님 세션 잔류 버그 방지).
+    try{ await db.signOut(); }catch(e){}
+    resetStudy();
+    state.session=null; state.profile=null; state.ownerMode=false; state.intake=null; state.viewRegion=null; state.viewable=[];
+    u.hash = sel==='owner' ? '#/splash' : '#/study';
+    showLoading('전환하는 중이에요…');
+    history.replaceState(null, '', u.pathname+u.search+u.hash);
+    window.location.reload();   // hash-only 변경이어도 확실히 리로드 → STUDY_ROLE 재계산·오버레이 정리
   };
 }
 
 /* 공급(오너) 데모 부트스트랩 — 참여자 실험처럼 mock(동일 자극·무마찰)에서 돈다.
  * 세션·거주인증·데모 매장을 준비해 사장님 센터(screenOwnerHome)로 직행하고 owner_demo_start 를 남긴다. */
 async function beginOwnerDemo(intake={}){
+  showLoading('사장님 센터를 준비하고 있어요…');
   // 오너 계측을 로컬에 남기기 위해 오너 세션 준비(지갑 없음). 참여자 세션이 남아있으면 새로 시작.
   const cur=getStudy(); if(!cur || cur.role!=='owner'){ resetStudy(); startOwnerStudy(); if(intake&&Object.keys(intake).length) saveOwnerIntake(intake); }
   // 라이브면 ?mock=1 로 재진입(참여자 beginPersona 와 동일 패턴). 재진입 후 스플래시→여기로 다시 온다.
@@ -269,15 +301,16 @@ async function beginOwnerDemo(intake={}){
   try{
     const region = intake.regionId || 'r_suwon';
     await db.signIn('owner_demo@local');
-    await db.verifyResident({ regionId:region, displayName:'데모 사장님', interests:[], bio:'', isHost:false });
+    await db.verifyResident({ regionId:region, displayName:(intake.nickname||'').trim()||'데모 사장님', interests:[], bio:'', isHost:false });
     await boot();
     // 기본 데모 매장 1곳(+개설 요청·진행중·정산) 보장 → 요청함·정산·홈이 처음부터 살아있다
     await db.ensureOwnerVenue();
     await boot();
     state.ownerMode=true;
     logEvent('owner_demo_start', { ctx: STUDY_CTX });
+    hideLoading();
     go('#/owner-home');
-  }catch(e){ toast(e.message,'err'); go('#/signup'); }
+  }catch(e){ hideLoading(); toast(e.message,'err'); go('#/study'); }   // 이메일 회원가입으로 새지 않도록 초기화면으로
 }
 
 /* ═══════════ S1 회원가입 (멀티스텝) ═══════════ */
@@ -610,8 +643,8 @@ async function screenHostApply(venueId){
     <div class="field"><label>소개</label><textarea class="textarea" id="desc" placeholder="어떤 모임인지, 누구에게 좋은지"></textarea></div>
     <div class="field"><label>시작 일시 <span class="sub">· 유휴 ${esc(v.idle_start||'')}~${esc(v.idle_end||'')}</span></label><input class="input" id="starts" type="datetime-local"></div>
     <div class="row2"><div class="field"><label>정원</label><input class="input" id="cap" type="number" min="2" max="${v.capacity}" value="${Math.min(8,v.capacity)}"></div><div class="field"><label>참가비(원)</label><input class="input" id="fee" type="number" min="0" step="1000" value="8000"></div></div>
-    <div class="field"><label>매장 분배율(%) <span class="sub">· 최소 30</span></label><input class="input" id="share" type="number" min="30" max="100" value="40"></div>
-    <div class="hl"><span>${ICON.won}</span><div class="t">참가비의 일부는 공간을 내어준 매장에 <b>꼭 돌아가요(최소 30%)</b>.</div></div>
+    <div class="field"><label>매장 분배율(%) <span class="sub">· 최소 45</span></label><input class="input" id="share" type="number" min="45" max="100" value="45"></div>
+    <div class="hl"><span>${ICON.won}</span><div class="t">참가비는 <b>매장 45% · 호스트 45% · 플랫폼 10%</b>가 기본이에요. 공간 몫은 최소 45%를 지켜주세요.</div></div>
     </div>
     <div class="cta-dock"><button class="btn btn--lg btn--primary" id="submit">이 자리 열기 신청</button></div>`);
   const cand=document.getElementById('cand'); cand.onchange=()=>{ if(cand.value && !document.getElementById('title').value) document.getElementById('title').value=cand.value; };
@@ -619,7 +652,7 @@ async function screenHostApply(venueId){
     const title=document.getElementById('title').value.trim()||cand.value;
     const share=+document.getElementById('share').value;
     if(!title) return toast('제목을 입력해 주세요.','err');
-    if(share<30) return toast('매장 분배율은 최소 30% 이상이어야 해요.','err');
+    if(share<45) return toast('매장 분배율은 최소 45% 이상이어야 해요.','err');
     const p={ venue_id:v.id, title, description:document.getElementById('desc').value.trim(), category:cand.value||'모임',
       starts_at:new Date(document.getElementById('starts').value||Date.now()+86400000).toISOString(), duration_min:v.slot_minutes||120,
       capacity:+document.getElementById('cap').value, fee:+document.getElementById('fee').value, venue_share_pct:share };
@@ -659,7 +692,7 @@ async function screenHostBrowse(){
           <div class="owner-hero__k">${ICON.keypin}</div>
           <h1 style="font-size:21px">모임을 여는 사람,<br>호스트가 되어보세요</h1>
           <p>낯선 대관이 아니라 검증된 이웃이 이끄는 자리예요. 우리 동네 빈 공간을 빌려 원하는 모임을 열고, 참가비의 일부를 나눠 가져요.</p></div>
-        <div class="hl"><span>${ICON.users}</span><div class="t">호스트는 <b>매개자</b>예요 — 공간(사장님)과 사람(참여자)을 잇고, 참가비의 최소 30%는 공간에 돌아가요.</div></div>
+        <div class="hl"><span>${ICON.users}</span><div class="t">호스트는 <b>매개자</b>예요 — 공간(사장님)과 사람(참여자)을 잇고, 참가비의 45%는 공간에 돌아가요.</div></div>
         <button class="btn btn--lg btn--primary btn--block" id="hbSwitch" style="margin:6px 0 4px">네, 호스트로 전환할게요</button>
         <p class="hint center" style="margin-bottom:8px">이미 거주 인증을 마쳐서 바로 시작할 수 있어요.</p>`;
     const hbMap = isHost && venues.length
@@ -753,7 +786,20 @@ async function screenMe(){
     <button class="btn btn--md btn--neutral btn--block" id="logout">로그아웃</button>
     <p class="hint center" style="margin-top:14px">${IS_MOCK?'체험(mock) 모드 — 데이터는 이 브라우저에만 저장돼요.':'Supabase 연결됨'}</p>`);
   const tp=document.getElementById('toPass'); if(tp) tp.onclick=()=>go('#/passes');
-  document.getElementById('logout').onclick=async()=>{ await db.signOut(); state.session=null; state.profile=null; state.viewRegion=null; state.viewable=[]; state.ownerMode=false; go('#/splash'); };
+  document.getElementById('logout').onclick=doLogout;
+}
+/* 로그아웃 = '테스트 끝내기'처럼 세션·검증데이터를 전부 초기화하고 첫 화면(#/study)으로.
+ * ?role=owner 가 URL 에 남아 있으면 스플래시가 오너 데모로 되돌리므로, 파라미터를 지우고 리로드한다.
+ * 초기화 전에 logout 이벤트를 남겨 admin123 에 추적되게 한다(끝나면 세션이 사라지므로 먼저 로깅). */
+async function doLogout(){
+  try{ await logEvent('logout', { role: getStudy()?.role || STUDY_ROLE, owner_mode: !!state.ownerMode }); }catch(e){}
+  try{ await db.signOut(); }catch(e){}
+  resetStudy(); clearFlags(); clearSurveyDraft();
+  state.session=null; state.profile=null; state.viewRegion=null; state.viewable=[]; state.ownerMode=false;
+  const u=new URL(window.location.href);
+  u.searchParams.delete('role'); u.searchParams.delete('persona');
+  u.hash='#/study';
+  window.location.replace(u.pathname+u.search+u.hash);
 }
 
 /* 다른 동네 홍보(이용권 유도) — 지금 그 동네에서 뭐가 열리는지 구체적으로 보여준다 */
@@ -848,61 +894,9 @@ const OWNER_IDLE_FREQ = ['거의 매일 비어요','특정 요일만','가끔','
 const OWNER_TRIED = ['대관 해봤다','원데이 클래스 해봤다','모임·소셜 유치 해봤다','해본 적 없다'];
 const OWNER_FACILITY_HINT = { '카페':['테이블 좌석','통창','와이파이','콘센트'], '책방·북카페':['좌식 좌석','책 다수','핸드드립 커피'], '바·펍':['스탠딩·바 좌석','음향 시설','논알콜 가능'], '로스터리':['바 좌석','원두 시음'], '공방':['작업 테이블','도구 대여'], '음식점':['테이블 좌석','주방','단체석'] };
 const OWNER_PROGRAM_HINT = { '카페':['모각작','드로잉 클래스','커피 클래스'], '책방·북카페':['북토크','필사 모임','글쓰기'], '바·펍':['LP 감상회','와인 소셜링'], '로스터리':['커피 클래스','와인 소셜링'], '공방':['드로잉 클래스','원데이 공예'], '음식점':['쿠킹 클래스','저녁 소셜'] };
-let ownerIntakeState=null;
-function screenOwnerIntake(){
-  renderAppbar(null); renderTabbar(null); setAdsVisible(false);
-  const mb=document.getElementById('modebar'); if(mb) mb.style.display='none';
-  if(!ownerIntakeState) ownerIntakeState={ category:'', regionId:'', venueName:'', capacity:'', idleDays:'평일', idleBand:'', idleFreq:'', tried:[], concern:'', consent:false };
-  const iv=ownerIntakeState;
-  fscr(`
-    <div class="gate__mark" style="margin:0 auto 6px">${ICON.store}</div>
-    <h1 class="dtitle" style="text-align:center;margin-top:0">사장님,<br>가게부터 알려주세요</h1>
-    <p class="hint" style="text-align:center;margin-bottom:16px">익명이에요. 몇 개만 채우면 <b>사장님 가게 조건 그대로</b> 보여드려요.</p>
-
-    <div class="field"><label>업종</label>
-      <div class="chips" id="ocat">${OWNER_CAT_OPTIONS.map(c=>`<button type="button" class="chip" data-v="${esc(c)}" aria-pressed="${iv.category===c}">${esc(c)}</button>`).join('')}</div></div>
-
-    <div class="field"><label>가게 이름 <span class="sub">· 선택</span></label><input class="input" id="oname" value="${esc(iv.venueName)}" placeholder="비워두면 '동네 우리 가게'"></div>
-
-    <div class="field"><label>가게가 있는 지역</label>${regionTrigger('oregion', iv.regionId, '가게 동네 선택')}</div>
-
-    <div class="row2"><div class="field"><label>최대 수용 인원</label><input class="input" id="ocap" type="number" min="2" max="60" value="${esc(iv.capacity)}" placeholder="예: 12"></div>
-      <div class="field"><label>주로 비는 시간대</label><select class="select" id="oband"><option value="">선택</option>${OWNER_IDLE_BAND.map(b=>`<option ${iv.idleBand===b?'selected':''}>${b}</option>`).join('')}</select></div></div>
-
-    <div class="field"><label>유휴 시간이 얼마나 자주 생기나요?</label>
-      <div class="chips" id="ofreq">${OWNER_IDLE_FREQ.map(f=>`<button type="button" class="chip" data-v="${esc(f)}" aria-pressed="${iv.idleFreq===f}">${esc(f)}</button>`).join('')}</div></div>
-
-    <div class="field"><label>전에 이런 거 해보신 적 있어요? <span class="sub">· 복수 선택</span></label>
-      <div class="chips" id="otried">${OWNER_TRIED.map(t=>`<button type="button" class="chip" data-v="${esc(t)}" aria-pressed="${iv.tried.includes(t)}">${esc(t)}</button>`).join('')}</div></div>
-
-    <div class="field"><label>해보기 전에 제일 걸리는 점, 있으세요? <span class="sub">· 선택</span></label>
-      <textarea class="textarea" id="oconcern" placeholder="물건 파손은 누가 책임지나, 우리 단골 시간이랑 겹치진 않나…">${esc(iv.concern)}</textarea></div>
-
-    <label class="check" style="margin-top:4px"><input type="checkbox" id="oconsent" ${iv.consent?'checked':''}><span class="box">${ICON.check}</span>
-      <span><b>개인정보 수집·이용에 동의</b>합니다. 업종·지역·답변은 <b>익명</b>으로 설문에만 써요.</span></label>`,
-    `<button class="btn btn--lg btn--primary btn--block" id="ostart">동의하고 데모 보기</button>`);
-
-  const scope=$screen;
-  const single=(sel,key)=>scope.querySelectorAll(`#${sel} [data-v]`).forEach(el=>el.onclick=()=>{ iv[key]=el.dataset.v; scope.querySelectorAll(`#${sel} [data-v]`).forEach(x=>x.setAttribute('aria-pressed', x.dataset.v===iv[key])); });
-  single('ocat','category'); single('ofreq','idleFreq');
-  scope.querySelectorAll('#otried [data-v]').forEach(el=>el.onclick=()=>{ const v=el.dataset.v; const i=iv.tried.indexOf(v); if(i>=0) iv.tried.splice(i,1); else iv.tried.push(v); el.setAttribute('aria-pressed', iv.tried.includes(v)); });
-  scope.querySelector('#oname').oninput=e=>iv.venueName=e.target.value;
-  scope.querySelector('#ocap').oninput=e=>iv.capacity=e.target.value;
-  scope.querySelector('#oband').onchange=e=>iv.idleBand=e.target.value;
-  scope.querySelector('#oconcern').oninput=e=>iv.concern=e.target.value;
-  scope.querySelector('#oconsent').onchange=e=>iv.consent=e.target.checked;
-  scope.querySelector('#oregion').onclick=()=>openRegionPicker({ selected:iv.regionId, title:'가게가 어느 동네에 있나요?',
-    onPick:id=>{ iv.regionId=id; const b=scope.querySelector('#oregion'); b.classList.remove('is-empty'); b.querySelector('.rpick__lbl').textContent=regionName(id); } });
-  scope.querySelector('#ostart').onclick=()=>{
-    if(!iv.category) return toast('업종을 골라 주세요.','err');
-    if(!iv.regionId) return toast('가게 지역을 선택해 주세요.','err');
-    if(!iv.consent)  return toast('개인정보 수집·이용에 동의해 주세요.','err');
-    saveOwnerIntake({ category:iv.category, regionId:iv.regionId, venueName:(iv.venueName||'').trim(),
-      capacity:+iv.capacity||null, idleDays:iv.idleDays, idleBand:iv.idleBand, idleFreq:iv.idleFreq, tried:iv.tried, concern:(iv.concern||'').trim(), consent:true });
-    ownerIntakeState=null;
-    beginOwnerDemo(getOwnerIntake());
-  };
-}
+/* 사장님 기본정보 인테이크는 이제 #/study(역할 선택 화면)에서 참여자와 동일한 UX로 받는다.
+ * 이 라우트는 하위호환용 리다이렉트만 남긴다(가게 세부정보는 데모 후 '매장 정보 수정'에서). */
+function screenOwnerIntake(){ go('#/study'); }
 
 /* ── O1 사장님 홈(대시보드) ── */
 async function screenOwnerHome(){
@@ -918,7 +912,7 @@ async function screenOwnerHome(){
       <h1>유휴 시간을,<br>매출이 되는 시간으로</h1>
       <p>비어 있는 평일 오후·개점 전 시간에 동네 사람들의 작은 모임을 들여보세요. 손님이 늘고, 공간이 알려지고, 참가비의 일부가 매장에 돌아와요.</p></div>
       <div class="kpis kpis--3">
-        <div class="kpi"><div class="kpi__v">5%</div><div class="kpi__l">플랫폼 수수료<br>(호스트 참가비 기준)</div></div>
+        <div class="kpi"><div class="kpi__v">10%</div><div class="kpi__l">플랫폼 수수료<br>(호스트 참가비 기준)</div></div>
         <div class="kpi"><div class="kpi__v">내가 결정</div><div class="kpi__l">누구를 들일지<br>수락·거절</div></div>
         <div class="kpi"><div class="kpi__v">0원</div><div class="kpi__l">등록·고정비<br>없음</div></div>
       </div>
@@ -929,7 +923,7 @@ async function screenOwnerHome(){
   const v=d.venues[0];
   const idle = v.idle_start? `${esc(v.idle_days||'평일')} ${esc(v.idle_start)}~${esc(v.idle_end||'')}` : '유휴 시간 미설정';
   body.innerHTML=`
-    <div class="owner-banner"><span class="ob-badge">사장님 모드</span><div class="ob-name">${esc(v.name)}</div><div class="ob-sub">${esc(v.category||'')} · ${idle}</div></div>
+    <div class="owner-banner owner-banner--tap" data-go="#/owner-venue/${v.id}" role="button" tabindex="0"><span class="ob-badge">사장님 모드</span><div class="ob-name">${esc(v.name)}</div><div class="ob-sub">${esc(v.category||'')} · ${idle}</div><span class="ob-edit">매장 정보 수정<span class="chev">›</span></span></div>
     <div class="kpis kpis--3">
       <div class="kpi ${d.pending.length?'kpi--hot':''}" data-go="#/owner-requests"><div class="kpi__v">${d.pending.length}</div><div class="kpi__l">승인 대기<br>요청</div></div>
       <div class="kpi" data-go="#/owner-settlement"><div class="kpi__v">${d.approved.length}</div><div class="kpi__l">예정된<br>모임</div></div>
@@ -945,7 +939,7 @@ async function screenOwnerHome(){
       <div class="facilities" style="margin-bottom:12px">${(v.facilities||[]).slice(0,4).map(f=>`<span class="chip chip--tag">${esc(f)}</span>`).join('')||'<span class="hint">시설 정보 없음</span>'}</div>
       <button class="btn btn--sm btn--neutral" id="editV">매장 정보 수정</button>
     </div>
-    <div class="hl"><span>${ICON.won}</span><div class="t">참가비의 <b>최소 ${v.min_share_pct||30}%</b>가 매장에 돌아가도록 설정돼 있어요. 요청마다 분배율을 보고 수락 여부를 정하세요.</div></div>
+    <div class="hl"><span>${ICON.won}</span><div class="t">참가비의 <b>최소 ${v.min_share_pct||45}%</b>가 매장에 돌아가도록 설정돼 있어요. 요청마다 분배율을 보고 수락 여부를 정하세요.</div></div>
     ${ownerCtaBlock()}`;
   body.querySelectorAll('[data-go]').forEach(el=>el.onclick=()=>go(el.dataset.go));
   const ar=document.getElementById('allReq'); if(ar) ar.onclick=()=>go('#/owner-requests');
@@ -1011,7 +1005,7 @@ async function screenVenueEdit(venueId){
   state.ownerMode=true;
   const editing=!!venueId; trackOwnerScreen('venue');
   renderAppbar({title:editing?'매장 정보 수정':'매장 등록', back:true, onBack:()=>go('#/owner-home')}); renderTabbar(null); setAdsVisible(false);
-  let v={ name:'', category:'', address:'', capacity:8, idle_days:'평일', idle_start:'15:00', idle_end:'17:00', slot_minutes:120, min_share_pct:30, facilities:[], program_candidates:[], house_rules:'' };
+  let v={ name:'', category:'', address:'', capacity:8, idle_days:'평일', idle_start:'15:00', idle_end:'17:00', slot_minutes:120, min_share_pct:45, facilities:[], program_candidates:[], house_rules:'' };
   if(editing){ try{ const all=await db.myVenues(); const found=all.find(x=>x.id===venueId); if(found) v=found; }catch(e){} }
   const val=(x)=>esc(x==null?'':x);
   fscr(`<h1 class="dtitle" style="margin-top:4px">${editing?'매장 정보를 다듬어요':'우리 매장, 이렇게 열어요'}</h1>
@@ -1025,7 +1019,7 @@ async function screenVenueEdit(venueId){
     <div class="row2"><div class="field"><label>시작</label><input class="input" id="vs" type="time" value="${val(v.idle_start)||'15:00'}"></div>
       <div class="field"><label>종료</label><input class="input" id="ve" type="time" value="${val(v.idle_end)||'17:00'}"></div></div>
     <div class="row2"><div class="field"><label>1회 이용(분)</label><input class="input" id="vslot" type="number" min="30" step="30" value="${v.slot_minutes||120}"></div>
-      <div class="field"><label>최소 매장 분배율(%)</label><input class="input" id="vshare" type="number" min="0" max="100" value="${v.min_share_pct||30}"></div></div>
+      <div class="field"><label>최소 매장 분배율(%)</label><input class="input" id="vshare" type="number" min="45" max="100" value="${v.min_share_pct||45}"></div></div>
     <div class="sectitle" style="margin-top:18px">공간 소개</div>
     <div class="field"><label>보유 시설 <span class="sub">· 쉼표로 구분</span></label><input class="input" id="vfac" value="${val((v.facilities||[]).join(', '))}" placeholder="4인 테이블 6, 프로젝터, 와이파이"></div>
     <div class="field"><label>열려도 좋은 프로그램 <span class="sub">· 쉼표로 구분</span></label><input class="input" id="vprog" value="${val((v.program_candidates||[]).join(', '))}" placeholder="북토크, 드로잉 클래스, 보드게임"></div>
@@ -1064,7 +1058,7 @@ async function screenOwnerSettlement(){
       <div class="kpi"><div class="kpi__v">${won(d.potentialSum)}</div><div class="kpi__l">정원 만석 시<br>최대 정산액</div></div>
     </div>
     <div class="paynote"><span class="paynote__badge">파일럿</span><p>지금은 시범 운영이라 <b>실제 송금·정산은 없어요.</b> 아래는 승인한 모임 기준 예상 정산 내역이에요. 참가비는 당일 현장에서 정산돼요.</p></div>
-    <div class="hl"><span>${ICON.won}</span><div class="t">이 모임이 만석이면 매장에 이만큼 돌아가요. 참가비를 쪼개는 게 아니라, <b>손님이 늘고 그 손님이 매장에서 씁니다.</b></div></div>
+    <div class="hl"><span>${ICON.won}</span><div class="t">참가비는 <b>매장·호스트·플랫폼</b>이 나눠 가져요. 위 정산액은 그중 <b>매장 몫</b>이고, 온 손님이 매장에서 쓰는 <b>주문 매출은 별도예요.</b></div></div>
     <div class="sectitle">승인한 모임별 정산</div>
     ${d.settle.length? d.settle.map(s=>`<div class="mcard" style="cursor:default">
         <div class="top"><div class="mt" style="font-size:15px">${esc(s.meetup.title)}</div><span class="badge badge--time">${fmtShort(s.meetup.starts_at)}</span></div>
@@ -1084,8 +1078,8 @@ function flushOwnerDwell(){ if(!ownerDwell) return; const ms=Date.now()-ownerDwe
 /* L2("이 정도면 관심 간다") + 클로징 진입 CTA */
 function ownerCtaBlock(){
   return `<div class="owner-cta">
-    <button class="btn btn--md btn--soft btn--block" id="oIntent">👀 이 정도면 관심 간다</button>
-    <button class="btn btn--lg btn--primary btn--block" id="oClose" style="margin-top:10px">이번 주 무료 시범 1타임 열어보기</button>
+    <button class="btn btn--md btn--soft btn--block" id="oIntent">이 서비스, 관심 있어요</button>
+    <button class="btn btn--lg btn--primary btn--block" id="oClose" style="margin-top:10px">내 가게 예상 정산·조건 자세히 보기</button>
   </div>`;
 }
 function bindOwnerCta(scope){
@@ -1114,7 +1108,7 @@ async function screenOwnerClosing(){
     </div>
     <div class="hl"><span>${ICON.store}</span><div class="t">지금 <b>0원인 유휴 시간</b>을 손님이 채우고, 그 손님이 매장에서 씁니다. 낯선 대관이 아니라 <b>검증된 호스트</b>가 손님을 데려와요. 리스크·인력은 우리가 대신합니다.</div></div>
     </div>
-    <div class="cta-dock"><button class="btn btn--lg btn--primary" id="commit">이번 주 딱 한 타임, 무료로 열어보기</button></div>`);
+    <div class="cta-dock"><button class="btn btn--lg btn--primary" id="commit">무료 시범 모임 신청하기</button></div>`);
   document.getElementById('commit').onclick=()=>ownerTrialModal(v.program_candidates||[]);
 }
 function ownerTrialModal(cands=[]){   // L3
@@ -1124,7 +1118,7 @@ function ownerTrialModal(cands=[]){   // L3
   wrap.innerHTML=`<div class="modal__bd"></div>
     <div class="modal__sheet" role="dialog" aria-modal="true" aria-label="무료 시범 개방">
       <div class="modal__grip"></div>
-      <div class="modal__title">이번 주 딱 한 타임, 무료로 시범 열어보실래요?</div>
+      <div class="modal__title">무료 시범 모임, 언제 열어볼까요?</div>
       <div class="modal__body">
         <p class="hint" style="margin:-4px 0 12px">안 맞으면 바로 접어도 돼요. 날짜·프로그램만 정하면 호스트·모객은 우리가 붙여요.</p>
         ${cands.length?`<div class="sectitle" style="margin-top:0">어떤 프로그램이면 좋을까요?</div>
@@ -1198,8 +1192,8 @@ function screenStudy(){
     try{ const saved=sessionStorage.getItem(INTAKE_KEY); if(saved) state.intake={ ...JSON.parse(saved) }; }catch(e){}
     if(state.intake?.consent) return beginStudy(auto);
   }
-  if(!state.intake) state.intake={ consent:false, ageRange:'', gender:'', nickname:'', regionId:'', persona:'', role:'participant' };
-  if(!state.intake.role) state.intake.role='participant';
+  if(!state.intake) state.intake={ consent:false, ageRange:'', gender:'', nickname:'', regionId:'', persona:'', category:'', role: STUDY_ROLE==='owner'?'owner':'participant' };
+  if(!state.intake.role) state.intake.role = STUDY_ROLE==='owner'?'owner':'participant';
   const iv=state.intake;
   const isOwner=iv.role==='owner';
   // 역할 선택(참여자/사장님) — 이 페이지에서 바로 고른다. 사장님은 가게 정보를 받는 다음 화면으로 이어짐.
@@ -1208,64 +1202,69 @@ function screenStudy(){
       <button type="button" data-role="participant" aria-selected="${!isOwner}">🧭 참여자</button>
       <button type="button" data-role="owner" aria-selected="${isOwner}">🏪 사장님</button>
     </div></div>`;
-  // 참여자 폼(현행) / 사장님 안내(다음 화면으로)
-  const participantForm=`
+  // 역할별 중간 필드: 참여자=동네 사용법(페르소나) / 사장님=업종
+  const roleSpecific = isOwner
+    ? `<div class="field"><label>업종 <span class="hint" style="font-weight:600;color:var(--brand)">· 필수</span></label>
+        <div class="chips" id="ocat">${OWNER_CAT_OPTIONS.map(c=>`<button type="button" class="chip" data-cat="${esc(c)}" aria-pressed="${iv.category===c}">${esc(c)}</button>`).join('')}</div></div>`
+    : `<div class="field"><label>동네를 어떻게 쓰세요? <span class="hint" style="font-weight:600;color:var(--brand)">· 필수</span></label>
+        <div class="persona-pick">${PERSONAS.map(p=>`<button type="button" class="card persona-card persona-card--sm ${iv.persona===p.key?'is-sel':''}" data-p="${p.key}" title="${esc(personaDesc(p, iv.regionId))}"><div class="pc-emo">${p.emoji}</div><div class="mt">${esc(p.short||p.label)}</div></button>`).join('')}</div></div>`;
+  // 참여자·사장님 공통 기본정보 폼(설문식) — 이메일·위치허용 없이 나이대·성별·닉네임·지역만.
+  const regionLabel = isOwner ? '가게가 있는 지역' : '실제 거주 지역';
+  const regionPh    = isOwner ? '가게 동네 선택 (예: 마포구)' : '내 동네 선택 (예: 마포구)';
+  const form=`
     <div class="field"><label>나이대 <span class="hint" style="font-weight:600;color:var(--brand)">· 필수</span></label>
       <div class="chips" id="ageChips">${AGE_OPTIONS.map(a=>`<button type="button" class="chip" data-age="${esc(a)}" aria-pressed="${iv.ageRange===a}">${esc(a)}</button>`).join('')}</div></div>
 
     <div class="field"><label>성별 <span class="hint" style="font-weight:600;color:var(--brand)">· 필수</span></label>
       <div class="chips" id="genderChips">${GENDER_OPTIONS.map(g=>`<button type="button" class="chip" data-gender="${esc(g)}" aria-pressed="${iv.gender===g}">${esc(g)}</button>`).join('')}</div></div>
 
-    <div class="field"><label>동네에서 불릴 이름 <span class="hint" style="font-weight:400">· 익명</span></label>
+    <div class="field"><label>${isOwner?'사장님 표시 이름':'동네에서 불릴 이름'} <span class="hint" style="font-weight:400">· 익명</span></label>
       <input class="input" id="nick" placeholder="비워두면 자동으로 지어드려요" value="${esc(iv.nickname)}"></div>
 
-    <div class="field"><label>실제 거주 지역 <span class="hint" style="font-weight:600;color:var(--brand)">· 필수</span></label>${regionTrigger('region', iv.regionId, '내 동네 선택 (예: 마포구)')}
+    <div class="field"><label>${regionLabel} <span class="hint" style="font-weight:600;color:var(--brand)">· 필수</span></label>${regionTrigger('region', iv.regionId, regionPh)}
       <p class="hint" style="margin-top:6px">고른 동네의 실제 지도가 열려요. 처음엔 시 단위로 열려요. (서울만 구 단위 — 예: 마포구)</p></div>
 
-    <div class="field"><label>동네를 어떻게 쓰세요? <span class="hint" style="font-weight:600;color:var(--brand)">· 필수</span></label>
-      <div class="persona-pick">${PERSONAS.map(p=>`<button type="button" class="card persona-card persona-card--sm ${iv.persona===p.key?'is-sel':''}" data-p="${p.key}" title="${esc(personaDesc(p, iv.regionId))}"><div class="pc-emo">${p.emoji}</div><div class="mt">${esc(p.short||p.label)}</div></button>`).join('')}</div></div>
+    ${roleSpecific}
 
     <label class="check" style="margin-top:6px"><input type="checkbox" id="consent" ${iv.consent?'checked':''}><span class="box">${ICON.check}</span>
-      <span><b>개인정보 수집·이용에 동의</b>합니다. (나이대·성별·닉네임·거주지역·선택기록을 <b>익명</b>으로 설문 목적에만 사용, 언제든 파기 요청 가능)</span></label>
+      <span><b>개인정보 수집·이용에 동의</b>합니다. (나이대·성별·닉네임·거주지역·${isOwner?'업종':'선택기록'}을 <b>익명</b>으로 설문 목적에만 사용, 언제든 파기 요청 가능)</span></label>
 
-    <div class="gate__cta" style="margin-top:14px"><button class="btn btn--lg btn--primary btn--block" id="start">동의하고 시작하기</button></div>`;
-  const ownerForm=`
-    <div class="hl" style="margin-top:6px"><span>${ICON.store}</span><div class="t">사장님은 <b>가게 정보(업종·유휴 시간 등)</b>를 받는 다음 화면으로 이어져요. 유휴 시간을 열고 요청을 받아보실 수 있어요.</div></div>
-    <div class="gate__cta" style="margin-top:14px"><button class="btn btn--lg btn--primary btn--block" id="toOwner">사장님으로 계속하기</button></div>`;
+    <div class="gate__cta" style="margin-top:14px"><button class="btn btn--lg btn--primary btn--block" id="start">${isOwner?'동의하고 사장님 센터 열기':'동의하고 시작하기'}</button></div>`;
   scrRaw(`<div class="gate"><div class="gate__inner" style="text-align:left">
     <div class="gate__mark" style="margin:0 auto 6px">${ICON.keypin}</div>
     <h1 style="text-align:center">잠깐,<br>당신을 알려주세요</h1>
-    <p style="text-align:center">${isOwner?'익명으로 진행돼요. 사장님 계정으로 데모를 둘러봅니다.':`익명으로 진행돼요. 아래를 채우면 <b>당신 동네의 진짜 지도</b>가 열리고 <b>${won(STUDY_BUDGET)} 크레딧</b>을 드려요.`}</p>
+    <p style="text-align:center">${isOwner?'익명으로 진행돼요. 기본 정보만 받고 <b>바로 사장님 센터</b>가 열려요.':`익명으로 진행돼요. 아래를 채우면 <b>당신 동네의 진짜 지도</b>가 열리고 <b>${won(STUDY_BUDGET)} 크레딧</b>을 드려요.`}</p>
     ${roleSeg}
-    ${isOwner?ownerForm:participantForm}
+    ${form}
     </div></div>`);
 
   const scope=$screen;
   mountSeg(scope.querySelector('#roleSeg'));
   scope.querySelectorAll('#roleSeg [data-role]').forEach(el=>el.onclick=()=>{ const r=el.dataset.role; if(iv.role===r) return; iv.role=r; screenStudy(); });
-  if(isOwner){
-    scope.querySelector('#toOwner').onclick=()=>{
-      const u=new URL(window.location.href); u.searchParams.set('role','owner'); u.hash='#/splash';
-      window.location.replace(u.toString());   // 사장님 경로는 STUDY_ROLE 반영 위해 재진입(screenPick 과 동일)
-    };
-    return;
-  }
   scope.querySelectorAll('#ageChips [data-age]').forEach(el=>el.onclick=()=>{ iv.ageRange=el.dataset.age; scope.querySelectorAll('#ageChips [data-age]').forEach(x=>x.setAttribute('aria-pressed', x.dataset.age===iv.ageRange)); });
   scope.querySelectorAll('#genderChips [data-gender]').forEach(el=>el.onclick=()=>{ iv.gender=el.dataset.gender; scope.querySelectorAll('#genderChips [data-gender]').forEach(x=>x.setAttribute('aria-pressed', x.dataset.gender===iv.gender)); });
   scope.querySelector('#nick').oninput=e=>{ iv.nickname=e.target.value; };
   scope.querySelector('#consent').onchange=e=>{ iv.consent=e.target.checked; };
+  // 참여자: 페르소나 / 사장님: 업종 (둘 중 렌더된 것만 존재)
   scope.querySelectorAll('[data-p]').forEach(el=>el.onclick=()=>{ iv.persona=el.dataset.p; scope.querySelectorAll('[data-p]').forEach(x=>x.classList.toggle('is-sel', x.dataset.p===iv.persona)); });
-  scope.querySelector('#region').onclick=()=>openRegionPicker({ selected:iv.regionId, title:'어느 동네에 사세요?',
+  scope.querySelectorAll('#ocat [data-cat]').forEach(el=>el.onclick=()=>{ iv.category=el.dataset.cat; scope.querySelectorAll('#ocat [data-cat]').forEach(x=>x.setAttribute('aria-pressed', x.dataset.cat===iv.category)); });
+  scope.querySelector('#region').onclick=()=>openRegionPicker({ selected:iv.regionId, title:isOwner?'가게가 어느 동네에 있나요?':'어느 동네에 사세요?',
     onPick:id=>{ iv.regionId=id; const b=scope.querySelector('#region'); b.classList.remove('is-empty'); b.querySelector('.rpick__lbl').textContent=regionName(id);
-      // 고른 동네로 페르소나 예시 문구를 즉시 리스킨
+      // 고른 동네로 페르소나 예시 문구를 즉시 리스킨(참여자만)
       scope.querySelectorAll('[data-p]').forEach(el=>{ const pk=personaByKey(el.dataset.p); const h=el.querySelector('.pc-body .hint'); if(pk&&h) h.textContent=personaDesc(pk, id); }); } });
   scope.querySelector('#start').onclick=()=>{
     if(!iv.ageRange) return toast('나이대를 골라 주세요.','err');
     if(!iv.gender)   return toast('성별을 골라 주세요.','err');
-    if(!iv.regionId) return toast('거주 지역을 선택해 주세요.','err');
-    if(!iv.persona)  return toast('동네를 어떻게 쓰는지 골라 주세요.','err');
+    if(!iv.regionId) return toast(isOwner?'가게 지역을 선택해 주세요.':'거주 지역을 선택해 주세요.','err');
+    if(isOwner){ if(!iv.category) return toast('업종을 골라 주세요.','err'); }
+    else       { if(!iv.persona)  return toast('동네를 어떻게 쓰는지 골라 주세요.','err'); }
     if(!iv.consent)  return toast('개인정보 수집·이용에 동의해 주세요.','err');
-    beginStudy(iv.persona);
+    if(isOwner){
+      // ?role=owner 를 URL 에 심어 이후 리로드(라이브 mock 재진입)에도 STUDY_ROLE 이 owner 로 유지되게.
+      // mock(설문 배포)에선 리로드 없이 세션 role='owner' 로 바로 사장님 센터가 열린다.
+      try{ const u=new URL(window.location.href); u.searchParams.set('role','owner'); history.replaceState({},'',u.pathname+u.search+'#/study'); }catch(e){}
+      beginOwnerDemo({ ageRange:iv.ageRange, gender:iv.gender, nickname:(iv.nickname||'').trim(), regionId:iv.regionId, category:iv.category, consent:true });
+    } else beginStudy(iv.persona);
   };
 }
 
@@ -1280,6 +1279,7 @@ async function beginStudy(key){
     const u=new URL(window.location.href); u.searchParams.set('mock','1'); u.searchParams.set('persona',key); u.hash='#/study'; return window.location.replace(u.toString());
   }
   try{
+    showLoading('동네 지도를 여는 중이에요…');
     const home=respondent.regionId;
     startStudy(key, respondent);
     try{ sessionStorage.removeItem(INTAKE_KEY); }catch(e){}
@@ -1289,10 +1289,11 @@ async function beginStudy(key){
     const lures = key==='mover' ? (p.highlight||[]).filter(id=>id && id!==home) : [];
     if(db.installStimulus) await db.installStimulus({ homeId:home, lureIds:lures });
     await boot();
-    state.profile=prof; state.viewRegion=home; state.viewable=[]; state.intake=null;
+    state.profile=prof; state.viewRegion=home; state.viewable=[]; state.intake=null; state.ownerMode=false;
     const mb2=document.getElementById('modebar'); if(mb2){ mb2.style.display=''; mb2.innerHTML=`<span class="wpill">🪙 크레딧 <b>${won(balance())}</b></span><button class="wend" data-end>테스트 끝내기</button>`; const eb=mb2.querySelector('[data-end]'); if(eb) eb.onclick=endStudyFlow; }
+    hideLoading();
     gateOpen(regionName(home));
-  }catch(e){ toast(e.message,'err'); }
+  }catch(e){ hideLoading(); toast(e.message,'err'); }
 }
 
 /* 지갑 표시(모드바). 잔액이 바뀔 때마다 호출. */
@@ -1398,12 +1399,17 @@ function afterFirstSpend(m, done){ maybeAskWtp(m, ()=> maybeAskSolo(done)); }
 /* ═══════════ 앱 내 설문 #/survey (docs/08 §6) — role 분기 ═══════════ */
 function surveyQuestions(role){
   if(role==='owner') return [
-    { id:'o1', type:'scale5', q:'이 서비스, 우리 가게 유휴시간에 실제로 도움이 될까요?', lo:'전혀', hi:'매우' },
-    { id:'o2', type:'single',  q:'가장 끌린 점은?', opts:['손님 유입','데드타임 매출','가게 홍보','단골 확보','딱히 없음'] },
-    { id:'o3', type:'single',  q:'가장 걱정되는 점은?', opts:['낯선 모임·소음','정산·수익성','운영 번거로움','기존 손님 반응','없음'] },
-    { id:'o4', type:'single',  q:'무료 시범 1타임, 열어보실 의향은?', opts:['바로 좋아요','조건 맞으면','좀 더 생각','아니오'] },
-    { id:'o5', type:'open',    q:'어떤 조건이면 확실히 참여?', optional:true },
-    { id:'o6', type:'open',    q:'해보기 전에 제일 걸리는 게 뭐예요? 솔직하게요.', optional:true },
+    { id:'o1', type:'scale5', q:'우리 가게에 손님이 없는 비는 시간(데드타임)이 있나요?', lo:'거의 없다', hi:'매일 있다' },
+    { id:'o2', type:'single',  q:'방금 둘러보신 중 가장 끌린 점은?', opts:['비는 시간 매출','신규 손님·단골 유입','가게 홍보·포트폴리오','내가 승인·거절 통제','딱히 없음'] },
+    { id:'o3', type:'single',  q:'가장 걱정되는 점은?', opts:['낯선 모임·소음','물건 파손·책임','기존 단골과 시간 겹침','정산·수익성','운영 번거로움','없음'] },
+    { id:'o4', type:'scale5', q:'이 서비스가 비는 시간을 매출로 바꾸는 데 도움이 될까요?', lo:'전혀', hi:'매우' },
+    { id:'o5', type:'single',  q:'참가비 분배에 더해, 손님이 매장에서 쓰는 주문(F&B)까지 있으면 해볼 만한가요?', opts:['확실히 그렇다','어느 정도','잘 모르겠다','아니다'] },
+    { id:'o6', type:'single',  q:'한 타임에 매장 몫이 얼마면 시간을 내주시겠어요?', opts:['1만↓','1~3만','3~5만','5만↑','금액 무관'] },
+    { id:'o7', type:'single',  q:'무료 시범 1타임, 열어보실 의향은?', opts:['바로 좋아요','조건 맞으면','좀 더 생각','아니오'] },
+    { id:'o8', type:'single',  q:'전에 이런 걸 시도해 보신 적 있어요?', opts:['대관','원데이 클래스','모임·소셜 유치','해본 적 없다'] },
+    { id:'o9', type:'scale5', q:'이 모임으로 온 손님이 우리 가게 단골로 이어질 것 같나요?', lo:'아니다', hi:'그렇다' },
+    { id:'o10', type:'open',   q:'어떤 조건이면 확실히 참여하시겠어요?', optional:true },
+    { id:'o11', type:'open',   q:'해보기 전에 제일 걸리는 점, 솔직하게 하나만요.', optional:true },
   ];
   return [
     { id:'q1', type:'scale5', q:"평소 '혼자 가도 괜찮은, 취향 맞는 동네 모임'이 없어 아쉬웠던 적?", lo:'전혀', hi:'자주' },
@@ -1434,12 +1440,13 @@ function bindQuestion(scope, q, ans, prog){
 function screenSurvey(){
   renderAppbar({title:'마지막 30초', back:false}); renderTabbar(null); setAdsVisible(false);
   const mb=document.getElementById('modebar'); if(mb) mb.innerHTML='';
-  const role = STUDY_ROLE;
+  // 역할은 세션 기준(리로드 없이 인라인 진입해도 정확). 세션이 없으면 URL(STUDY_ROLE)로 폴백.
+  const role = getStudy()?.role || STUDY_ROLE;
   const qs = surveyQuestions(role);
   const s = getStudy(); const tester = s?.tester || null;
   const ans = loadSurveyDraft(tester);   // 이 tester 의 저장된 초안 복원(도중 이탈 대비)
   const intro = role==='owner'
-    ? '딱 5개만요. 사장님 답이 다음 사장님을 설득할 근거가 돼요.'
+    ? '1분이면 돼요. 사장님 답이 다음 사장님을 설득할 근거가 돼요.'
     : '마지막 30초만요. 방금 써보신 언더그라운드맵, 솔직한 한마디가 저희에겐 진짜 큰 데이터예요.';
   fscr(`
     <div class="wbar" id="svProg"><span style="width:0%"></span></div>
@@ -1454,7 +1461,7 @@ function screenSurvey(){
   applySurveyDraft(list, qs, ans); prog();   // 복원한 답을 화면·진행바에 반영
   const submit=(skipped)=>{
     const nps  = role==='owner' ? null : (ans['q5']!=null ? +ans['q5'] : null);
-    const open = role==='owner' ? (ans['o5']||'') : (ans['q10']||'');
+    const open = role==='owner' ? (ans['o10']||'') : (ans['q10']||'');
     logEvent('survey_response', { role, answers:ans, nps, open, skipped:!!skipped });
     clearSurveyDraft();   // 제출 완료 → 초안 비움
     go(role==='owner' ? '#/thanks' : '#/lead');
@@ -1638,23 +1645,34 @@ function computeMetrics(all){
   const movers=sessions.filter(s=>s.persona==='mover').length;
 
   // ── 공급(오너) 지표 ──
-  const supply={ demoN:ownerSessions.length, intentL2:0, approve:0, reject:0, l3sessions:0, leads:0, o1sum:0, o1n:0, o4:{}, dwell:{}, dwellN:{}, cat:{}, tried:{}, prog:{} };
-  const openSupply=[];   // 사장 자유응답(인테이크 concern · o5 참여조건 · o6 궁금·걱정)
+  const supply={ demoN:ownerSessions.length, intentL2:0, approve:0, reject:0, l3sessions:0, leads:0, surveyOpen:0, surveyN:0,
+    helpSum:0, helpN:0, deadSum:0, deadN:0, loyalSum:0, loyalN:0, dist:{}, ageDist:{}, genderDist:{},
+    dwell:{}, dwellN:{}, cat:{}, tried:{}, prog:{} };
+  const openSupply=[];   // 사장 자유응답(인테이크 concern · o10 참여조건 · o11 걱정)
   ownerSessions.forEach(s=>{ const evs=s.events||[]; let reachedL3=false;
     evs.forEach(e=>{ const p=e.payload||{};
       if(e.type==='owner_intent') supply.intentL2++;
-      else if(e.type==='owner_intake'){ if(p.category) supply.cat[p.category]=(supply.cat[p.category]||0)+1; (p.tried||[]).forEach(t=>supply.tried[t]=(supply.tried[t]||0)+1); if((p.concern||'').trim()) openSupply.push({ q:'concern', text:p.concern.trim() }); }
+      else if(e.type==='owner_intake'){ if(p.category) supply.cat[p.category]=(supply.cat[p.category]||0)+1;
+        if(p.ageRange) supply.ageDist[p.ageRange]=(supply.ageDist[p.ageRange]||0)+1;
+        if(p.gender) supply.genderDist[p.gender]=(supply.genderDist[p.gender]||0)+1;
+        (p.tried||[]).forEach(t=>supply.tried[t]=(supply.tried[t]||0)+1); if((p.concern||'').trim()) openSupply.push({ q:'concern', text:p.concern.trim() }); }
       else if(e.type==='owner_request_decide'){ if(p.decision==='approve') supply.approve++; else supply.reject++; }
       else if(e.type==='owner_trial_commit'){ reachedL3=true; const pg=p.program; if(pg) supply.prog[pg]=(supply.prog[pg]||0)+1; }
       else if(e.type==='owner_lead') supply.leads++;
+      else if(e.type==='owner_survey_open') supply.surveyOpen++;
       else if(e.type==='owner_screen_view'){ const sc=p.screen||'?'; supply.dwell[sc]=(supply.dwell[sc]||0)+(p.dwell_ms||0); supply.dwellN[sc]=(supply.dwellN[sc]||0)+1; }
-      else if(e.type==='survey_response'&&p.role==='owner'){ const o1=+p.answers?.o1; if(o1){ supply.o1sum+=o1; supply.o1n++; } const o4=p.answers?.o4; if(o4) supply.o4[o4]=(supply.o4[o4]||0)+1;
-        ['o6','o5'].forEach(qid=>{ const t=(p.answers?.[qid]||'').trim(); if(t) openSupply.push({ q:qid, text:t }); }); }
+      else if(e.type==='survey_response'&&p.role==='owner'){ supply.surveyN++; const a=p.answers||{};
+        const sc=(qid,acc)=>{ const v=+a[qid]; if(v){ supply[acc+'Sum']+=v; supply[acc+'N']++; } };
+        sc('o4','help'); sc('o1','dead'); sc('o9','loyal');   // scale5 3종 평균
+        ['o2','o3','o5','o6','o7','o8'].forEach(qid=>{ const v=a[qid]; if(v){ (supply.dist[qid]=supply.dist[qid]||{})[v]=(supply.dist[qid][v]||0)+1; } });   // 단일선택 분포
+        ['o11','o10'].forEach(qid=>{ const t=(a[qid]||'').trim(); if(t) openSupply.push({ q:qid, text:t }); }); }
     });
     if(reachedL3) supply.l3sessions++;
   });
-  supply.l3rate = supply.demoN ? supply.l3sessions/supply.demoN : null;   // L3+ 도달률(핵심지표 H1)
-  supply.o1avg  = supply.o1n ? (supply.o1sum/supply.o1n) : null;
+  supply.l3rate  = supply.demoN ? supply.l3sessions/supply.demoN : null;   // L3+ 도달률(핵심지표 H1)
+  supply.helpAvg = supply.helpN ? (supply.helpSum/supply.helpN) : null;    // 매출화 도움 인식(o4)
+  supply.deadAvg = supply.deadN ? (supply.deadSum/supply.deadN) : null;    // 데드타임 존재(o1)
+  supply.loyalAvg= supply.loyalN ? (supply.loyalSum/supply.loyalN) : null; // 단골 전환 기대(o9)
   const avgDwell={}; Object.keys(supply.dwell).forEach(k=> avgDwell[k]=Math.round(supply.dwell[k]/supply.dwellN[k]));
 
   return { N, persona, gmv, avgSpend:N?Math.round(gmv/N):0, avgLeftover:N?Math.round(leftoverSum/N):0,
@@ -1772,11 +1790,23 @@ async function screenAdmin(){
         <div class="kpi"><div class="kpi__v">${m.supply.approve}/${m.supply.reject}</div><div class="kpi__l">요청<br>수락/거절</div></div>
         <div class="kpi"><div class="kpi__v">${m.supply.leads}</div><div class="kpi__l">L4 연락처<br>(리드)</div></div>
       </div>
-      ${m.supply.o1n?`<p class="hint">사장님 설문 O1(유휴시간 도움 인식) 평균 <b>${m.supply.o1avg.toFixed(1)}/5</b> · n=${m.supply.o1n}</p>`:''}
-      ${Object.keys(m.supply.o4).length?`<div class="sectitle">O4 무료 시범 의향</div>${rankRows(m.supply.o4,'명')}`:''}
+      <p class="hint">설문 진입(FAB '사용 설문 참여') <b>${m.supply.surveyOpen}</b>회 · 사장님 설문 응답 <b>${m.supply.surveyN}</b>건</p>
+      ${m.supply.surveyN?`<div class="kpis kpis--3">
+        <div class="kpi"><div class="kpi__v">${m.supply.deadAvg!=null?m.supply.deadAvg.toFixed(1):'—'}</div><div class="kpi__l">O1 데드타임<br>존재 (/5)</div></div>
+        <div class="kpi ${m.supply.helpAvg>=3.5?'kpi--brand':''}"><div class="kpi__v">${m.supply.helpAvg!=null?m.supply.helpAvg.toFixed(1):'—'}</div><div class="kpi__l">O4 매출화<br>도움 (/5)</div></div>
+        <div class="kpi"><div class="kpi__v">${m.supply.loyalAvg!=null?m.supply.loyalAvg.toFixed(1):'—'}</div><div class="kpi__l">O9 단골<br>전환 (/5)</div></div>
+      </div>`:''}
+      ${Object.keys(m.supply.dist.o2||{}).length?`<div class="sectitle">O2 가장 끌린 점</div>${rankRows(m.supply.dist.o2,'명')}`:''}
+      ${Object.keys(m.supply.dist.o3||{}).length?`<div class="sectitle">O3 가장 걱정되는 점(리스크)</div>${rankRows(m.supply.dist.o3,'명')}`:''}
+      ${Object.keys(m.supply.dist.o5||{}).length?`<div class="sectitle">O5 참가비+F&B 결합 설득력</div>${rankRows(m.supply.dist.o5,'명')}`:''}
+      ${Object.keys(m.supply.dist.o6||{}).length?`<div class="sectitle">O6 시간 내줄 매장 몫(WTP)</div>${rankRows(m.supply.dist.o6,'명')}`:''}
+      ${Object.keys(m.supply.dist.o7||{}).length?`<div class="sectitle">O7 무료 시범 의향</div>${rankRows(m.supply.dist.o7,'명')}`:''}
+      ${Object.keys(m.supply.dist.o8||{}).length?`<div class="sectitle">O8 기존 시도 경험</div>${rankRows(m.supply.dist.o8,'명')}`:''}
+      ${Object.keys(m.supply.ageDist).length?`<div class="sectitle">사장님 나이대</div>${rankRows(m.supply.ageDist,'명')}`:''}
+      ${Object.keys(m.supply.genderDist).length?`<div class="sectitle">사장님 성별</div>${rankRows(m.supply.genderDist,'명')}`:''}
       ${Object.keys(m.supply.avgDwell).length?`<div class="sectitle">화면 체류(평균 초) · 정산 체류=경제적 동기</div>${rankRows(Object.fromEntries(Object.entries(m.supply.avgDwell).map(([k,v])=>[k,Math.round(v/1000)])),'초')}`:''}
       ${Object.keys(m.supply.cat).length?`<div class="sectitle">사장 업종 분포</div>${rankRows(m.supply.cat,'곳')}`:''}
-      ${Object.keys(m.supply.tried).length?`<div class="sectitle">기존 시도 경험</div>${rankRows(m.supply.tried,'명')}`:''}`:''}
+      ${Object.keys(m.supply.tried).length?`<div class="sectitle">기존 시도 경험(인테이크)</div>${rankRows(m.supply.tried,'명')}`:''}`:''}
 
     ${(m.leads||m.interestN||Object.keys(m.notifyCats).length)?`<div class="sectitle">🔔 대기자·알림 신청 (수요)</div>
       <div class="kpis kpis--2">
@@ -1791,7 +1821,7 @@ async function screenAdmin(){
     ${m.openDemand.length?`<div class="sectitle">🗣️ 청년 자유응답 (궁금·걱정·바라는 것) · ${m.openDemand.length}건</div>
       <div class="quotes">${m.openDemand.map(o=>`<div class="quote"><span class="quote__tag">${o.q==='q11'?'궁금·걱정':'바꾸고싶은것'}</span>${esc(o.text)}</div>`).join('')}</div>`:''}
     ${m.openSupply.length?`<div class="sectitle">🗣️ 사장님 자유응답 (궁금·걱정·참여조건) · ${m.openSupply.length}건</div>
-      <div class="quotes">${m.openSupply.map(o=>`<div class="quote"><span class="quote__tag">${o.q==='concern'?'인테이크 고민':o.q==='o6'?'궁금·걱정':'참여조건'}</span>${esc(o.text)}</div>`).join('')}</div>`:''}
+      <div class="quotes">${m.openSupply.map(o=>`<div class="quote"><span class="quote__tag">${o.q==='concern'?'인테이크 고민':(o.q==='o11'||o.q==='o6')?'걱정·우려':'참여조건'}</span>${esc(o.text)}</div>`).join('')}</div>`:''}
 
     <div class="divider"></div>
     <div class="hl"><span>${ICON.chart}</span><div class="t">데이터 원천 — 이 브라우저 ${srcCounts.local} · 불러온 파일 ${srcCounts.import} · 원격 ${srcCounts.remote}</div></div>
@@ -1814,10 +1844,13 @@ async function screenAdmin(){
 
 /* ═══════════ 라우터 ═══════════ */
 const OWNER_ROUTES=['owner-home','owner-requests','owner-venue','owner-settlement','owner-closing'];
+const FAB_ROUTES=['owner-home','owner-requests','owner-settlement'];   // 사용 설문 참여 FAB 노출 화면(사장님)
+const FAB_PARTICIPANT_ROUTES=['map','my','passes','venue','host-apply','host-browse','joined','me'];   // 참여자 검증 세션 FAB 노출 화면
 const HOST_THEME_ROUTES=['host-browse','host-apply'];   // 라이트 테마로 반전되는 호스트 화면
 const AUTHED=['map','venue','host-apply','host-browse','joined','my','passes','me',...OWNER_ROUTES];
 async function route(){
   const hash=window.location.hash||'#/splash';
+  if(typeof hideLoading==='function') hideLoading();   // 화면 전환 시 잔류 로딩 오버레이 제거(무한로딩 방지)
   const [,path,arg]=hash.match(/^#\/([^/]+)\/?(.*)$/)||[,'splash',''];
   if(!OWNER_ROUTES.includes(path)) flushOwnerDwell();   // 사장님 화면을 떠나면 체류 기록 마감
   if(AUTHED.includes(path)){
@@ -1829,8 +1862,17 @@ async function route(){
   // 모드 동기화: 참여자 탭 진입 시 사장님 모드 해제(공유 화면 'me' 는 유지)
   if(OWNER_ROUTES.includes(path)){ state.ownerMode=true; setTimeout(refreshOwnerBar,0); }
   else if(['map','my','passes','venue','host-apply','host-browse'].includes(path)) state.ownerMode=false;
+  // 사장님 메인 탭(홈·요청·정산) + 오너 모드의 '나'에서만 '사용 설문 참여' FAB 노출.
+  // 하단 고정 버튼(cta-dock)이 있는 화면(클로징·매장등록/수정)은 겹침 방지로 제외.
+  renderOwnerFab(
+    FAB_ROUTES.includes(path)
+    || (path==='me' && state.ownerMode)
+    || (getStudy()?.role==='participant' && FAB_PARTICIPANT_ROUTES.includes(path))
+  );
   // 호스트 화면에선 라이트 테마로 반전(참여자=다크 ↔ 호스트=흰 배경)
   document.body.classList.toggle('theme-host', HOST_THEME_ROUTES.includes(path));
+  // 관리자 대시보드에서만 앱 셸을 데스크톱 폭으로 확장(가독성)
+  document.body.classList.toggle('admin-wide', path==='admin'||path==='admin123');
   if(RESEARCH_ON) setTimeout(refreshWallet, 0);   // 화면 렌더 후 지갑 갱신
   switch(path){
     case 'splash': return screenSplash();

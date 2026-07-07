@@ -218,38 +218,38 @@ function seed() {
     /* 수원(홈) — 카테고리×가격×시간대 균형. time_band = 데드타임|저녁|주말 */
     { id:'sm1', region_id:'r_suwon', venue_id:'sv1', host_id:'host_su1', host_name:'책방지기 은하', host_bio:'행궁동에서 작은 책방을 지켜요. 매주 다른 책 한 권.', host_interests:['책·글쓰기'],
       title:'수요일의 북토크', description:'이번 주 책 한 권을 같이 읽고 30분만 이야기해요. 안 읽고 와도 괜찮아요.', category:'책·글쓰기',
-      time_band:'저녁', track:'B', starts_at:hoursFromNow(28), duration_min:120, capacity:10, joined:6, fee:8000, venue_share_pct:40, status:'open' },
+      time_band:'저녁', track:'B', starts_at:hoursFromNow(28), duration_min:120, capacity:10, joined:6, fee:8000, venue_share_pct:45, status:'open' },
     { id:'sm2', region_id:'r_suwon', venue_id:'sv2', host_id:'host_su2', host_name:'바리스타 도윤', host_bio:'수원천 옆 작은 로스터리. 커피와 내추럴 와인.', host_interests:['커피·와인'],
       title:'주말 낮 와인 소셜링', description:'토요일 오후, 내추럴 와인 한 잔으로 느슨하게. 4잔 시음 포함.', category:'커피·와인',
-      time_band:'주말', track:'B', starts_at:daysFromNow(3), duration_min:120, capacity:8, joined:5, fee:15000, venue_share_pct:35, status:'open' },
+      time_band:'주말', track:'B', starts_at:daysFromNow(3), duration_min:120, capacity:8, joined:5, fee:15000, venue_share_pct:45, status:'open' },
     { id:'sm3', region_id:'r_suwon', venue_id:'sv3', host_id:'host_su3', host_name:'드로잉 서아', host_bio:'그림으로 퇴근길을 바꿔요. 초보 환영.', host_interests:['취미·공예'],
       title:'데드타임 드로잉 클래스', description:'비어 있는 평일 오후 3시 공방에서 한 장. 화구는 대여해요.', category:'드로잉·공예',
-      time_band:'데드타임', track:'B', starts_at:hoursFromNow(27), duration_min:120, capacity:6, joined:2, fee:12000, venue_share_pct:40, status:'open' },
+      time_band:'데드타임', track:'B', starts_at:hoursFromNow(27), duration_min:120, capacity:6, joined:2, fee:12000, venue_share_pct:45, status:'open' },
     { id:'sm4', region_id:'r_suwon', venue_id:'sv4', host_id:'host_su4', host_name:'LP지기 민', host_bio:'좋아하는 판을 같이 틀어요.', host_interests:['음악·LP'],
       title:'퇴근 후 LP 감상회', description:'평일 저녁 8시, 각자 한 곡씩 신청하고 이야기 나눠요. 논알콜 가능.', category:'음악·LP',
-      time_band:'저녁', track:'A', starts_at:hoursFromNow(31), duration_min:120, capacity:12, joined:7, fee:10000, venue_share_pct:35, status:'open' },
+      time_band:'저녁', track:'A', starts_at:hoursFromNow(31), duration_min:120, capacity:12, joined:7, fee:10000, venue_share_pct:45, status:'open' },
     { id:'sm5', region_id:'r_suwon', venue_id:'sv5', host_id:'host_su5', host_name:'모각작 지기 지음', host_bio:'각자 할 일을 조용히, 그래도 같이.', host_interests:['모각작'],
       title:'데드타임 모각작', description:'평일 오후 2시, 각자 노트북·책 들고 모여 조용히 각자 작업. 혼자 와도 편해요.', category:'모각작',
-      time_band:'데드타임', track:'A', starts_at:hoursFromNow(26), duration_min:90, capacity:8, joined:3, fee:6000, venue_share_pct:40, status:'open' },
+      time_band:'데드타임', track:'A', starts_at:hoursFromNow(26), duration_min:90, capacity:8, joined:3, fee:6000, venue_share_pct:45, status:'open' },
     { id:'sm6', region_id:'r_suwon', venue_id:'sv6', host_id:'host_su6', host_name:'러닝메이트 현', host_bio:'주말 아침을 같이 열어요.', host_interests:['러닝·산책'],
       title:'토요일 모닝 러닝', description:'주말 아침 8시, 화성 성곽 5km 같이 뛰고 스무디 한 잔.', category:'러닝·산책',
-      time_band:'주말', track:'A', starts_at:daysFromNow(2), duration_min:90, capacity:10, joined:4, fee:5000, venue_share_pct:30, status:'open' },
+      time_band:'주말', track:'A', starts_at:daysFromNow(2), duration_min:90, capacity:10, joined:4, fee:5000, venue_share_pct:45, status:'open' },
 
     /* 서울 마포(이용권 뒤 미끼) */
     { id:'mm1', region_id:'r_seoul-mapo', venue_id:'mv1', host_id:'host_ma1', host_name:'합정 DJ 노아', host_bio:'마포의 밤을 판으로 채워요.', host_interests:['음악·LP'],
       title:'합정 LP 나이트', description:'평일 저녁 8시, 마포 사람들과 판 한 장씩.', category:'음악·LP',
-      time_band:'저녁', track:'A', starts_at:hoursFromNow(29), duration_min:120, capacity:14, joined:9, fee:12000, venue_share_pct:35, status:'open' },
+      time_band:'저녁', track:'A', starts_at:hoursFromNow(29), duration_min:120, capacity:14, joined:9, fee:12000, venue_share_pct:45, status:'open' },
     { id:'mm2', region_id:'r_seoul-mapo', venue_id:'mv2', host_id:'host_ma2', host_name:'연남 책방지기', host_bio:'연남에서 매주 다른 책 한 권.', host_interests:['책·글쓰기'],
       title:'연남 저녁 북토크', description:'퇴근 후 책 한 권, 가볍게 30분 대화.', category:'책·글쓰기',
-      time_band:'저녁', track:'B', starts_at:hoursFromNow(51), duration_min:120, capacity:10, joined:6, fee:10000, venue_share_pct:35, status:'open' },
+      time_band:'저녁', track:'B', starts_at:hoursFromNow(51), duration_min:120, capacity:10, joined:6, fee:10000, venue_share_pct:45, status:'open' },
     { id:'mm3', region_id:'r_seoul-mapo', venue_id:'mv3', host_id:'host_ma3', host_name:'망원 드로잉 유', host_bio:'주말 오후를 그림으로.', host_interests:['취미·공예'],
       title:'망원 주말 드로잉', description:'토요일 오후, 통창 카페에서 한 장.', category:'드로잉·공예',
-      time_band:'주말', track:'B', starts_at:daysFromNow(4), duration_min:120, capacity:8, joined:5, fee:12000, venue_share_pct:40, status:'open' },
+      time_band:'주말', track:'B', starts_at:daysFromNow(4), duration_min:120, capacity:8, joined:5, fee:12000, venue_share_pct:45, status:'open' },
 
     /* 서울 강남(이용권 뒤 미끼) */
     { id:'gm1', region_id:'r_seoul-gangnam', venue_id:'gv1', host_id:'host_ga1', host_name:'퇴근러 태오', host_bio:'강남 직장인 느슨한 와인 소셜.', host_interests:['커피·와인'],
       title:'퇴근길 와인 소셜', description:'평일 저녁, 강남에서 내추럴 와인 한 잔.', category:'커피·와인',
-      time_band:'저녁', track:'B', starts_at:hoursFromNow(30), duration_min:120, capacity:16, joined:8, fee:15000, venue_share_pct:35, status:'open' },
+      time_band:'저녁', track:'B', starts_at:hoursFromNow(30), duration_min:120, capacity:16, joined:8, fee:15000, venue_share_pct:45, status:'open' },
   ];
   return { regions, venues, meetups, registrations: [], passes: [], session: null, profile: null };
 }
@@ -292,11 +292,11 @@ function activeMeetupOf(s, venueId) {
 function seedPendingFor(s, v) {
   const cands = (v.program_candidates && v.program_candidates.length) ? v.program_candidates : ['소모임', '원데이 클래스', '취향 살롱'];
   const demo = [
-    { host_id: 'host_req1', host_name: '드로잉하는 세연', host_bio: '퇴근 후 그림 그리는 느슨한 모임을 열어요. 초보 환영이에요.', host_interests: ['취미·공예'], capacity: Math.min(6, v.capacity), fee: 12000, share: 40, offsetH: 52, status: 'pending' },
-    { host_id: 'host_req2', host_name: '북클럽 리더 준', host_bio: '한 달에 두 번, 조용히 책 한 권 같이 읽어요.', host_interests: ['책·글쓰기'], capacity: Math.min(8, v.capacity), fee: 10000, share: 35, offsetH: 74, status: 'pending' },
-    { host_id: 'host_req3', host_name: '커피살롱 하린', host_bio: '동네 사람들과 커피 한 잔, 느슨한 대화.', host_interests: ['커피·와인'], capacity: Math.min(8, v.capacity), fee: 9000, share: 40, offsetH: 98, status: 'pending' },
+    { host_id: 'host_req1', host_name: '드로잉하는 세연', host_bio: '퇴근 후 그림 그리는 느슨한 모임을 열어요. 초보 환영이에요.', host_interests: ['취미·공예'], capacity: Math.min(6, v.capacity), fee: 12000, share: 45, offsetH: 52, status: 'pending' },
+    { host_id: 'host_req2', host_name: '북클럽 리더 준', host_bio: '한 달에 두 번, 조용히 책 한 권 같이 읽어요.', host_interests: ['책·글쓰기'], capacity: Math.min(8, v.capacity), fee: 10000, share: 45, offsetH: 74, status: 'pending' },
+    { host_id: 'host_req3', host_name: '커피살롱 하린', host_bio: '동네 사람들과 커피 한 잔, 느슨한 대화.', host_interests: ['커피·와인'], capacity: Math.min(8, v.capacity), fee: 9000, share: 45, offsetH: 98, status: 'pending' },
     // 이미 수락해 진행 중(정산·예정 모임이 비지 않도록)
-    { host_id: 'host_ok1', host_name: '모각작 지기 오름', host_bio: '각자 할 일을 조용히, 그래도 같이.', host_interests: ['모각작'], capacity: Math.min(8, v.capacity), fee: 8000, share: 40, offsetH: 44, status: 'open', joined: Math.max(2, Math.ceil(Math.min(8, v.capacity) * 0.5)) },
+    { host_id: 'host_ok1', host_name: '모각작 지기 오름', host_bio: '각자 할 일을 조용히, 그래도 같이.', host_interests: ['모각작'], capacity: Math.min(8, v.capacity), fee: 8000, share: 45, offsetH: 44, status: 'open', joined: Math.max(2, Math.ceil(Math.min(8, v.capacity) * 0.5)) },
   ];
   demo.forEach((h, i) => {
     s.meetups.push({
@@ -335,7 +335,7 @@ const mockDb = {
           host_name: (s.profile && s.profile.display_name) || '나', host_bio: (s.profile && s.profile.bio) || '', host_interests: (s.profile && s.profile.interests) || [],
           title: '내가 여는 동네 모각작', description: '직접 연 첫 모임이에요. 편하게 오세요.', category: '모각작',
           time_band: '저녁', track: 'A', starts_at: hoursFromNow(40), duration_min: dim.slot_minutes || 120,
-          capacity: Math.min(8, dim.capacity || 8), joined: 2, fee: 8000, venue_share_pct: 40, status: 'open' });
+          capacity: Math.min(8, dim.capacity || 8), joined: 2, fee: 8000, venue_share_pct: 45, status: 'open' });
       }
       saveMock(s);
     }
@@ -347,8 +347,11 @@ const mockDb = {
 
   async signIn(email) {
     const s = loadMock();
-    s.session = { id: 'u_' + (email || 'guest').split('@')[0], email: email || 'guest@local' };
-    if (!s.profile) s.profile = { id: s.session.id, display_name: '', interests: [], bio: '', resident_verified: false, region_id: null, is_host: false, is_venue_owner: false };
+    const id = 'u_' + (email || 'guest').split('@')[0];
+    s.session = { id, email: email || 'guest@local' };
+    // 다른 계정으로 로그인하면(예: 사장님 → 참여자) 이전 프로필을 물려받지 않도록 새로 만든다.
+    // 안 그러면 is_venue_owner/데모 사장님 같은 사장님 속성이 참여자에게 새어 사장님 메뉴로 전환된다.
+    if (!s.profile || s.profile.id !== id) s.profile = { id, display_name: '', interests: [], bio: '', resident_verified: false, region_id: null, is_host: false, is_venue_owner: false };
     saveMock(s); return { user: s.session };
   },
   async signOut() { const s = loadMock(); s.session = null; saveMock(s); },
@@ -447,7 +450,7 @@ const mockDb = {
       capacity: +payload.capacity || 8, idle_days: payload.idle_days || '평일',
       idle_start: payload.idle_start || '', idle_end: payload.idle_end || '', slot_minutes: +payload.slot_minutes || 120,
       images: [], facilities: payload.facilities || [], program_candidates: payload.program_candidates || [],
-      min_share_pct: +payload.min_share_pct || 30, house_rules: payload.house_rules || '',
+      min_share_pct: +payload.min_share_pct || 45, house_rules: payload.house_rules || '',
       mx: 20 + Math.floor(Math.random() * 60), my: 24 + Math.floor(Math.random() * 52), lat: null, lng: null,
     };
     s.venues.unshift(v);
@@ -478,7 +481,7 @@ const mockDb = {
       images: [], facilities: ['좌식 8석', '핸드드립 커피', '책 4,000권', '스탠드 조명'],
       program_candidates: ['북토크', '글쓰기 워크숍', '필사 모임'],
       past_programs: [{ title: '이달의 북토크 · 『불안』', ago: '2주 전', joined: 10 }, { title: '밤의 필사 모임', ago: '지난달', joined: 8 }],
-      min_share_pct: 30, house_rules: '', mx: 34, my: 30, lat: region?.lat ?? null, lng: region?.lng ?? null,
+      min_share_pct: 45, house_rules: '', mx: 34, my: 30, lat: region?.lat ?? null, lng: region?.lng ?? null,
     };
     s.venues.unshift(v);
     if (s.profile) s.profile.is_venue_owner = true;
@@ -655,7 +658,7 @@ const liveDb = {
       capacity: +payload.capacity || 8, idle_days: payload.idle_days || '평일',
       idle_start: payload.idle_start || null, idle_end: payload.idle_end || null, slot_minutes: +payload.slot_minutes || 120,
       facilities: payload.facilities || [], program_candidates: payload.program_candidates || [],
-      min_share_pct: +payload.min_share_pct || 30, house_rules: payload.house_rules || '',
+      min_share_pct: +payload.min_share_pct || 45, house_rules: payload.house_rules || '',
     };
     const { data, error } = await supabase.from('venues').insert(row).select().single();
     throwErr(error); return data;

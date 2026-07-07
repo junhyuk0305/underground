@@ -35,7 +35,7 @@ function relInner() {
         <div class="rel-txt"><div class="rel-nm">사장님</div><div class="rel-ds">비는 시간을 내어주고 새 손님·단골·매출을 얻어요</div></div>
       </div>
     </div>
-    <div class="rel-foot">참가비는 <b>공간·호스트·플랫폼</b>이 함께 나눠요 <span>(매장 최소 30% · 수수료 5%)</span></div>`;
+    <div class="rel-foot">참가비는 <b>매장·호스트·플랫폼</b>이 나눠요 <span>(매장 45% · 호스트 45% · 플랫폼 10%)</span></div>`;
 }
 
 /* 2) 이렇게 써요 — 3스텝 사용법 */
@@ -84,14 +84,14 @@ function splitInner() {
     <div class="rel-tit">참가비는<br>이렇게 나눠요</div>
     <div class="exp-body">
       <div class="exp-stack" aria-hidden="true">
-        <span class="exp-seg exp-seg--venue" style="width:34%"></span>
-        <span class="exp-seg exp-seg--host" style="width:56%"></span>
+        <span class="exp-seg exp-seg--venue" style="width:45%"></span>
+        <span class="exp-seg exp-seg--host" style="width:45%"></span>
         <span class="exp-seg exp-seg--fee" style="width:10%"></span>
       </div>
       <div class="exp-legend">
-        <div class="exp-leg"><span class="exp-dot exp-dot--venue"></span><div><b>공간(매장) 최소 30%+</b><small>비는 시간이 매출로</small></div></div>
-        <div class="exp-leg"><span class="exp-dot exp-dot--host"></span><div><b>호스트 진행 몫</b><small>모임을 기획·진행</small></div></div>
-        <div class="exp-leg"><span class="exp-dot exp-dot--fee"></span><div><b>플랫폼 수수료 5%</b><small>지도·안전·정산</small></div></div>
+        <div class="exp-leg"><span class="exp-dot exp-dot--venue"></span><div><b>공간(매장) 45%</b><small>비는 시간이 매출로</small></div></div>
+        <div class="exp-leg"><span class="exp-dot exp-dot--host"></span><div><b>호스트 45%</b><small>모임을 기획·진행</small></div></div>
+        <div class="exp-leg"><span class="exp-dot exp-dot--fee"></span><div><b>플랫폼 10%</b><small>지도·안전·정산</small></div></div>
       </div>
     </div>
     <div class="rel-foot">공간을 내준 매장에 <b>손님이 늘고</b>, 그 손님이 매장에서 써요</div>`;

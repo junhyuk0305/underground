@@ -182,6 +182,15 @@ a{color:inherit;text-decoration:none}
 .empty .ic{font-size:40px;margin-bottom:12px;opacity:.7}
 .empty .btn{margin-top:18px}
 
+/* ── 전체 로딩 오버레이(정보가 들어올 때까지) ── */
+.app-loading{position:absolute;inset:0;z-index:60;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:15px;
+  background:var(--bg);opacity:0;visibility:hidden;transition:opacity .2s var(--ease),visibility .2s var(--ease);pointer-events:none}
+.app-loading.show{opacity:1;visibility:visible;pointer-events:auto}
+.app-loading__spin{width:38px;height:38px;border-radius:50%;border:3px solid var(--line);border-top-color:var(--brand);animation:appSpin .7s linear infinite}
+.app-loading__msg{font-size:13.5px;font-weight:700;color:var(--t-2);letter-spacing:-.01em}
+@keyframes appSpin{to{transform:rotate(360deg)}}
+@media (prefers-reduced-motion:reduce){.app-loading__spin{animation-duration:1.6s}}
+
 /* ── 토스트 ── */
 .toast{position:absolute;left:16px;right:16px;bottom:calc(var(--tabbar-h) + 14px);background:var(--elevated);color:#fff;
   border:1px solid var(--line-strong);border-radius:var(--r-md);padding:14px 16px;font-size:14px;font-weight:500;z-index:60;
@@ -456,6 +465,11 @@ a{color:inherit;text-decoration:none}
 .ob-badge{display:inline-block;font-size:11px;font-weight:800;color:#180a02;background:var(--brand-soft);padding:3px 10px;border-radius:var(--r-full);letter-spacing:.02em;margin-bottom:10px}
 .ob-name{font-size:19px;font-weight:800;letter-spacing:-.02em;color:var(--t-hi)}
 .ob-sub{font-size:13px;color:var(--t-2);margin-top:3px;font-weight:600}
+.owner-banner--tap{cursor:pointer;-webkit-tap-highlight-color:transparent;transition:transform .08s ease,box-shadow .15s ease}
+.owner-banner--tap:active{transform:scale(.99)}
+.owner-banner--tap:hover{box-shadow:0 0 0 1px var(--brand-line),var(--sh-card)}
+.ob-edit{display:inline-flex;align-items:center;gap:1px;margin-top:11px;font-size:12px;font-weight:700;color:var(--brand)}
+.ob-edit .chev{font-size:15px;line-height:1;margin-left:1px}
 
 /* KPI 타일 */
 .kpis{display:grid;gap:10px;margin-bottom:6px}
@@ -551,6 +565,22 @@ a{color:inherit;text-decoration:none}
 .nps__b[aria-pressed="true"]{background:var(--brand);color:#180a02;border-color:var(--brand)}
 .scale-lbl{display:flex;justify-content:space-between;font-size:11px;color:var(--t-3);margin-top:6px;font-weight:600}
 
+/* 사장님 화면 우하단 고정 FAB — 사용 설문 참여 */
+.owner-fab{position:absolute;right:14px;bottom:calc(var(--tabbar-h) + 14px);z-index:9;
+  display:inline-flex;align-items:center;gap:7px;padding:11px 16px 11px 13px;
+  background:var(--brand);color:#180a02;border:0;border-radius:var(--r-full);cursor:pointer;
+  font-family:inherit;font-weight:800;font-size:13px;letter-spacing:-.01em;
+  box-shadow:0 6px 20px rgba(255,78,0,.42),0 2px 6px rgba(0,0,0,.34);
+  animation:fabIn .28s ease}
+.owner-fab:hover{filter:brightness(1.05)}
+.owner-fab:active{transform:scale(.96)}
+/* FAB 표시 화면: 스크롤 콘텐츠 하단 여백 확보 → FAB가 CTA·카드 안 가리게 */
+.has-owner-fab .screen__pad{padding-bottom:84px}
+.owner-fab svg{width:17px;height:17px}
+.owner-fab__ic{display:inline-flex}
+@keyframes fabIn{from{opacity:0;transform:translateY(8px) scale(.92)}to{opacity:1;transform:none}}
+@media (prefers-reduced-motion:reduce){.owner-fab{animation:none}}
+
 /* 사장님 클로징 CTA + 관리자 ctx 테이블 */
 .owner-cta{margin-top:20px;padding-top:16px;border-top:1px solid var(--line)}
 .ctxtable{display:flex;flex-direction:column;gap:8px}
@@ -629,3 +659,46 @@ a{color:inherit;text-decoration:none}
 /* 하우스 슬롯 보강 */
 .ad-slot__emo{font-size:34px;margin:6px 0 2px}
 .ad-slot__desc{font-size:12.5px;color:var(--t-3,#9a968f);line-height:1.5;margin-top:6px}
+
+/* ═══════════ /admin123 — 웹 와이드 검증 대시보드 (이 화면만 데스크톱 폭 확장) ═══════════ */
+body.admin-wide .app-shell{max-width:1200px}
+body.admin-wide .ad-rail{display:none!important}
+@media (min-width:900px){ body.admin-wide .screen__pad{padding:20px 28px 44px} }
+
+/* 뷰 전환 탭(합산 / 사용자별) */
+.adm-tabs{display:flex;gap:8px;position:sticky;top:0;z-index:3;background:var(--bg);padding:6px 0 12px;margin-bottom:4px}
+.adm-tab{flex:0 0 auto;font-family:inherit;font-size:13px;font-weight:800;padding:8px 16px;border-radius:var(--r-full);
+  background:var(--surface);border:1px solid var(--line);color:var(--t-2);cursor:pointer;transition:background .15s,color .15s,border-color .15s}
+.adm-tab:hover{border-color:var(--brand-line)}
+.adm-tab.is-on{background:var(--brand);border-color:var(--brand);color:#180a02}
+
+/* 합산 결과 — 카드 그리드(데스크톱 다열 · 모바일 1열) */
+.adm-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(290px,1fr));gap:14px;align-items:start}
+.acard{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-lg);padding:16px 16px 18px;box-shadow:var(--sh-card)}
+.acard--wide{grid-column:1 / -1}
+.acard__t{font-size:13px;font-weight:800;color:var(--t-1);letter-spacing:.01em;margin:0 0 13px}
+.acard .sectitle:first-of-type{margin-top:2px}
+.acard .kpis:last-child{margin-bottom:0}
+.acard .hint{margin-top:8px}
+
+/* 사용자별 응답 — 테스터 카드 그리드 */
+.adm-users{display:grid;grid-template-columns:repeat(auto-fill,minmax(330px,1fr));gap:14px;align-items:start}
+.uhead{grid-column:1 / -1;font-size:13px;font-weight:800;color:var(--t-3);letter-spacing:.02em;margin:6px 0 -2px}
+.ucard{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-lg);padding:15px 16px 16px;box-shadow:var(--sh-card)}
+.ucard__hd{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:5px}
+.ucard__id{font-size:14px;font-weight:800;color:var(--t-hi);word-break:break-all}
+.ubadge{font-size:10.5px;font-weight:800;padding:2px 8px;border-radius:999px;background:var(--surface-2);color:var(--t-2);border:1px solid var(--line)}
+.ubadge--own{background:rgba(254,103,33,.14);color:var(--brand-soft);border-color:var(--brand-line)}
+.ubadge--par{background:rgba(55,217,160,.12);color:var(--pos);border-color:rgba(55,217,160,.3)}
+.ucard__meta{font-size:11.5px;color:var(--t-3);margin-bottom:11px;line-height:1.5}
+.ustat{display:flex;gap:13px;flex-wrap:wrap;font-size:12px;color:var(--t-2);margin-bottom:2px}
+.ustat b{color:var(--t-1);font-weight:700}
+.ubuys{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0 2px}
+.ubuy{font-size:11px;font-weight:700;padding:3px 9px;border-radius:999px;background:var(--brand-tint);color:var(--brand-soft);border:1px solid var(--brand-line)}
+.usec{margin-top:12px;padding-top:12px;border-top:1px solid var(--line)}
+.usec__t{font-size:11px;font-weight:800;color:var(--t-3);margin-bottom:8px;letter-spacing:.02em}
+.uqa{display:flex;flex-direction:column;gap:8px}
+.uqa__q{color:var(--t-3);display:block;font-size:11px;margin-bottom:2px;line-height:1.4}
+.uqa__a{color:var(--t-1);font-weight:600;font-size:13px}
+.uqa__a--open{color:var(--brand-soft);font-weight:500;background:var(--surface-2);border:1px solid var(--line);border-radius:9px;padding:7px 10px;font-size:12.5px;line-height:1.55}
+.adm-foot{margin-top:20px}

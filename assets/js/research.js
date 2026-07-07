@@ -50,7 +50,9 @@ export function startStudy(personaKey, respondent={}){
   const p = personaByKey(personaKey);
   if(!respondent.consent) return null;
   const home = respondent.regionId || p?.home || null;
-  const s = { tester:'t_'+rid(), persona:personaKey, home, role:STUDY_ROLE, ctx:STUDY_CTX,
+  // startStudy 는 '참여자' 세션 생성 전용(사장님은 startOwnerStudy). URL 의 stale ?role=owner 가
+  // 참여자 세션에 새어들지 않도록 role 을 STUDY_ROLE 이 아닌 'participant' 로 못박는다.
+  const s = { tester:'t_'+rid(), persona:personaKey, home, role:'participant', ctx:STUDY_CTX,
     respondent: { ageRange:respondent.ageRange||null, gender:respondent.gender||null,
                   nickname:respondent.nickname||null, regionId:home, consentAt:new Date().toISOString() },
     budget:STUDY_BUDGET, spent:0, events:[], startedAt:new Date().toISOString(), ended:false };
@@ -61,7 +63,7 @@ export function startStudy(personaKey, respondent={}){
     collector.from('respondents').insert({
       tester:s.tester, persona:personaKey, region_id:home,
       age_range:s.respondent.ageRange, gender:s.respondent.gender, nickname:s.respondent.nickname,
-      role:STUDY_ROLE, ctx:STUDY_CTX, consent:true, created_at:s.startedAt }).then(null, ()=>{});
+      role:'participant', ctx:STUDY_CTX, consent:true, created_at:s.startedAt }).then(null, ()=>{});
   }
   logEvent('study_start', { budget:STUDY_BUDGET, ageRange:s.respondent.ageRange, gender:s.respondent.gender, region:home });
   return s;
@@ -75,7 +77,8 @@ export function startOwnerStudy(){
   return s;
 }
 /* 사장님 인테이크 저장 — 데모 전에 '이 사장이 누구인가'를 받아 응답을 세그먼트 가능하게 한다(docs/08 §2-0).
- * intake = { category, regionId, capacity, idleDays, idleBand, idleFreq, tried[], concern, consent } */
+ * intake = { ageRange, gender, nickname, category, regionId, capacity, idleDays, idleBand, idleFreq, tried[], concern, consent }
+ * 참여자 인테이크와 동일하게 나이대·성별·닉네임(기본 인적사항)을 받아 respondents 로 익명 적재한다. */
 export function saveOwnerIntake(intake={}){
   let s=load();
   if(!s || s.role!=='owner') s=startOwnerStudy();
@@ -84,10 +87,11 @@ export function saveOwnerIntake(intake={}){
   if(collector){
     collector.from('respondents').insert({
       tester:s.tester, persona:null, region_id:intake.regionId||null,
-      age_range:null, gender:null, nickname:null,
+      age_range:intake.ageRange||null, gender:intake.gender||null, nickname:intake.nickname||null,
       role:'owner', ctx:STUDY_CTX, consent:!!intake.consent, created_at:s.ownerIntake.at }).then(null, ()=>{});
   }
   logEvent('owner_intake', {
+    ageRange:intake.ageRange||null, gender:intake.gender||null,
     category:intake.category||null, region:intake.regionId||null, capacity:intake.capacity||null,
     idle_days:intake.idleDays||null, idle_band:intake.idleBand||null, idle_freq:intake.idleFreq||null,
     tried:intake.tried||[], concern:intake.concern||'' });
