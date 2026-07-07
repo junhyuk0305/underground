@@ -702,3 +702,9 @@ body.admin-wide .ad-rail{display:none!important}
 .uqa__a{color:var(--t-1);font-weight:600;font-size:13px}
 .uqa__a--open{color:var(--brand-soft);font-weight:500;background:var(--surface-2);border:1px solid var(--line);border-radius:9px;padding:7px 10px;font-size:12.5px;line-height:1.55}
 .adm-foot{margin-top:20px}
+/* 합산 결과를 데스크톱 폭에서 여러 열로 흘려 가독성 확보(모바일=1열) */
+.adm-cols{columns:340px;column-gap:24px}
+.adm-cols>.kpis:first-child{margin-top:0}
+.adm-cols .sectitle{break-after:avoid;margin-top:16px}
+.adm-cols .kpis,.adm-cols .arow,.adm-cols .ctxrow,.adm-cols .quote,.adm-cols .chips,.adm-cols .hint,.adm-cols .infobox{break-inside:avoid}
+@media (max-width:560px){.adm-cols{columns:auto}}

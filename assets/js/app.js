@@ -1410,6 +1410,7 @@ function surveyQuestions(role){
     { id:'o9', type:'scale5', q:'이 모임으로 온 손님이 우리 가게 단골로 이어질 것 같나요?', lo:'아니다', hi:'그렇다' },
     { id:'o10', type:'open',   q:'어떤 조건이면 확실히 참여하시겠어요?', optional:true },
     { id:'o11', type:'open',   q:'해보기 전에 제일 걸리는 점, 솔직하게 하나만요.', optional:true },
+    { id:'o12', type:'open',   q:'마지막으로, 더 하고 싶은 말씀 남겨 주세요.', optional:true, ph:'무엇이든 편하게 적어 주세요' },
   ];
   return [
     { id:'q1', type:'scale5', q:"평소 '혼자 가도 괜찮은, 취향 맞는 동네 모임'이 없어 아쉬웠던 적?", lo:'전혀', hi:'자주' },
@@ -1423,11 +1424,12 @@ function surveyQuestions(role){
     { id:'q9', type:'scale5', q:'이런 모임 다니면 동네에 아는 얼굴이 늘 것 같나요?', lo:'아니다', hi:'그렇다' },
     { id:'q10', type:'open',   q:'딱 하나 바꾸고 싶은 게 있다면?', optional:true },
     { id:'q11', type:'open',   q:'써보다 걸리거나 궁금했던 거, 하나만 편하게 적어줘요.', optional:true },
+    { id:'q12', type:'open',   q:'마지막으로, 하고 싶은 말 편하게 남겨주세요!', optional:true, ph:'좋았던 점도, 아쉬운 점도 편하게' },
   ];
 }
 function renderQuestion(q){
   const head=`<div class="sv-q"><div class="sv-q__t">${esc(q.q)}${q.optional?' <span class="sub">(선택)</span>':''}</div>`;
-  if(q.type==='open') return head+`<textarea class="textarea" data-q="${q.id}" data-open placeholder="자유롭게 적어주세요"></textarea></div>`;
+  if(q.type==='open') return head+`<textarea class="textarea" data-q="${q.id}" data-open placeholder="${esc(q.ph||'자유롭게 적어주세요')}"></textarea></div>`;
   if(q.type==='nps') return head+`<div class="nps" data-q="${q.id}">${Array.from({length:11},(_,i)=>`<button type="button" class="nps__b" data-v="${i}" aria-pressed="false">${i}</button>`).join('')}</div><div class="scale-lbl"><span>추천 안 함</span><span>적극 추천</span></div></div>`;
   if(q.type==='scale5') return head+`<div class="chips chips--scale" data-q="${q.id}">${[1,2,3,4,5].map(v=>`<button type="button" class="chip chip--scale" data-v="${v}" aria-pressed="false">${v}</button>`).join('')}</div><div class="scale-lbl"><span>${esc(q.lo||'')}</span><span>${esc(q.hi||'')}</span></div></div>`;
   return head+`<div class="chips" data-q="${q.id}">${q.opts.map(o=>`<button type="button" class="chip" data-v="${esc(o)}" aria-pressed="false">${esc(o)}</button>`).join('')}</div></div>`;
@@ -1635,7 +1637,7 @@ function computeMetrics(all){
       if(e.type==='study_end'){ (e.payload?.reasons||[]).forEach(r=>skipReasons[r]=(skipReasons[r]||0)+1); }
       if(e.type==='survey_response'&&e.payload?.role!=='owner') sv=e.payload; });
     if(sv){ surveys.push(sv); const q4=sv.answers?.q4; if(q4==='당장 쓴다'){ intendNow++; if(spent<=0) overclaim++; }
-      ['q11','q10'].forEach(qid=>{ const t=(sv.answers?.[qid]||'').trim(); if(t) openDemand.push({ q:qid, text:t }); }); }
+      ['q12','q11','q10'].forEach(qid=>{ const t=(sv.answers?.[qid]||'').trim(); if(t) openDemand.push({ q:qid, text:t }); }); }
   });
   // NPS = (9~10%) − (0~6%)
   const npsVals=surveys.map(x=>x.nps).filter(v=>v!=null);
@@ -1665,7 +1667,7 @@ function computeMetrics(all){
         const sc=(qid,acc)=>{ const v=+a[qid]; if(v){ supply[acc+'Sum']+=v; supply[acc+'N']++; } };
         sc('o4','help'); sc('o1','dead'); sc('o9','loyal');   // scale5 3종 평균
         ['o2','o3','o5','o6','o7','o8'].forEach(qid=>{ const v=a[qid]; if(v){ (supply.dist[qid]=supply.dist[qid]||{})[v]=(supply.dist[qid][v]||0)+1; } });   // 단일선택 분포
-        ['o11','o10'].forEach(qid=>{ const t=(a[qid]||'').trim(); if(t) openSupply.push({ q:qid, text:t }); }); }
+        ['o12','o11','o10'].forEach(qid=>{ const t=(a[qid]||'').trim(); if(t) openSupply.push({ q:qid, text:t }); }); }
     });
     if(reachedL3) supply.l3sessions++;
   });
@@ -1693,6 +1695,95 @@ const rankRows=(obj,suffix='')=>{ const ent=Object.entries(obj).sort((a,b)=>b[1]
   return ent.length? ent.map(([k,v])=>abar(k,v,max,suffix)).join('') : '<p class="hint">데이터 없음</p>'; };
 const pctTxt=x=> x==null?'—':Math.round(x*100)+'%';
 
+/* 세션 하나(테스터 1명)의 행동·설문을 표시용으로 정규화 */
+function sessionSummary(s){
+  const evs=s.events||[]; const owner=isOwnerSession(s);
+  const buys=evs.filter(e=>e.type==='spend').map(e=>e.payload||{});
+  const spent = s.spent!=null ? s.spent : buys.reduce((a,p)=>a+(p.price||0),0);
+  const sv = evs.filter(e=>e.type==='survey_response').map(e=>e.payload).filter(Boolean).pop() || null;
+  const solo = evs.filter(e=>e.type==='solo_response').map(e=>!!(e.payload&&e.payload.came_alone));
+  const wtp  = evs.filter(e=>e.type==='wtp_response').map(e=>e.payload).filter(Boolean);
+  const lead = evs.some(e=>e.type==='lead_capture'||e.type==='owner_lead');
+  const views = evs.filter(e=>e.type==='meetup_view').length;
+  const interest = evs.filter(e=>e.type==='meetup_interest').length;
+  let intake=null; const decisions={approve:0,reject:0}; const trials=[];
+  evs.forEach(e=>{ const p=e.payload||{};
+    if(e.type==='owner_intake') intake=p;
+    else if(e.type==='owner_request_decide'){ if(p.decision==='approve') decisions.approve++; else decisions.reject++; }
+    else if(e.type==='owner_trial_commit'){ if(p.program) trials.push(p.program); } });
+  return { tester:s.tester||'(무명)', owner, persona:s.persona, ctx:s.ctx, src:s._src||'?',
+    spent, buys, sv, solo, wtp, lead, views, interest, intake, decisions, trials, nEvents:evs.length };
+}
+/* 테스터 1명 카드 — 요약 + 개별 설문 응답(질문 원문과 함께) */
+function renderUserCard(s){
+  const u=sessionSummary(s);
+  const role = u.owner?'owner':'participant';
+  const badge = u.owner ? `<span class="ubadge ubadge--own">사장님</span>` : `<span class="ubadge ubadge--par">참여자</span>`;
+  const personaTxt = u.persona==='mover'?'이동 청년':u.persona==='local'?'지방 청년':'';
+  const meta=[personaTxt, u.ctx?`ctx:${esc(u.ctx)}`:'', `출처:${u.src}`, `이벤트 ${u.nEvents}`].filter(Boolean).join(' · ');
+
+  let behavior='';
+  if(!u.owner){
+    const chips = u.buys.length? `<div class="ubuys">${u.buys.map(p=>{
+      const nm = p.kind==='pass' ? `이용권·${esc(p.category||'')}` : esc(p.category||'기타');
+      return `<span class="ubuy">${nm} ${won(p.price||0)}</span>`; }).join('')}</div>` : '';
+    behavior = `<div class="ustat"><span>지출 <b>${won(u.spent)}</b></span><span>구매 <b>${u.buys.length}건</b></span><span>클릭 <b>${u.views}</b></span><span>찜 <b>${u.interest}</b></span>${u.lead?'<span>🔔 리드</span>':''}</div>${chips}`;
+    const ex=[];
+    if(u.solo.length) ex.push(`혼자옴 ${u.solo.filter(Boolean).length}/${u.solo.length}`);
+    if(u.wtp.length)  ex.push(`실제지불의향 ${u.wtp.filter(w=>w.would_pay_real).length}/${u.wtp.length}`);
+    if(ex.length) behavior += `<div class="ustat" style="margin-top:5px">${ex.map(x=>`<span>${x}</span>`).join('')}</div>`;
+  } else {
+    const it=u.intake||{}; const bits=[];
+    if(it.category) bits.push(`업종 <b>${esc(it.category)}</b>`);
+    if(u.decisions.approve||u.decisions.reject) bits.push(`요청 수락/거절 <b>${u.decisions.approve}/${u.decisions.reject}</b>`);
+    if(u.trials.length) bits.push(`시범약정 <b>${u.trials.map(esc).join(', ')}</b>`);
+    if(u.lead) bits.push('🔔 리드');
+    behavior = `<div class="ustat">${bits.map(b=>`<span>${b}</span>`).join('')||'<span>진입만 함</span>'}</div>`;
+    if(it.tried&&it.tried.length) behavior += `<div class="ustat" style="margin-top:5px"><span>기존 시도: ${it.tried.map(esc).join(', ')}</span></div>`;
+    if((it.concern||'').trim()) behavior += `<div class="uqa__a--open" style="margin-top:8px">💬 ${esc(it.concern.trim())}</div>`;
+  }
+
+  let qa;
+  if(u.sv && u.sv.answers){
+    const rows=[];
+    surveyQuestions(role).forEach(q=>{
+      let v=u.sv.answers[q.id]; if(v==null||v==='') return;
+      if(q.type==='open'){ rows.push(`<div><span class="uqa__q">${esc(q.q)}</span><span class="uqa__a uqa__a--open">${esc(String(v))}</span></div>`); return; }
+      let disp=v; if(q.type==='scale5') disp=`${v} / 5`; else if(q.type==='nps') disp=`${v} / 10`;
+      rows.push(`<div><span class="uqa__q">${esc(q.q)}</span><span class="uqa__a">${esc(String(disp))}</span></div>`);
+    });
+    qa = rows.length
+      ? `<div class="usec"><div class="usec__t">설문 응답 · ${rows.length}문항</div><div class="uqa">${rows.join('')}</div></div>`
+      : `<div class="usec"><div class="usec__t">설문 응답</div><p class="hint" style="margin:0">응답 항목 없음</p></div>`;
+  } else {
+    qa = `<div class="usec"><div class="usec__t">설문 응답</div><p class="hint" style="margin:0">미제출</p></div>`;
+  }
+
+  return `<div class="ucard">
+    <div class="ucard__hd"><span class="ucard__id">${esc(u.tester)}</span>${badge}</div>
+    <div class="ucard__meta">${meta}</div>
+    ${behavior}
+    ${qa}
+  </div>`;
+}
+/* 사용자별 응답 — 참여자·사장님 그룹으로 카드 나열 */
+function renderPerUser(sessions){
+  if(!sessions.length) return '<div class="empty">아직 세션이 없어요.</div>';
+  const owners=sessions.filter(isOwnerSession), parts=sessions.filter(s=>!isOwnerSession(s));
+  const group=(title,arr)=> arr.length ? `<div class="uhead">${title} · ${arr.length}명</div>${arr.map(renderUserCard).join('')}` : '';
+  return group('참여자(수요)', parts) + group('사장님(공급)', owners);
+}
+/* 사용자별 응답을 CSV(엑셀 호환)로 — 한 행 = 테스터 1명 */
+function buildAdminCsv(sessions){
+  const allQ=[...new Set([...surveyQuestions('participant'),...surveyQuestions('owner')].map(q=>q.id))];
+  const head=['tester','role','persona','ctx','src','spent','buys','pass','lead',...allQ];
+  const cell=v=>{ const s=String(v==null?'':v).replace(/"/g,'""'); return /[",\n]/.test(s)?`"${s}"`:s; };
+  const rows=sessions.map(s=>{ const u=sessionSummary(s); const ans=(u.sv&&u.sv.answers)||{};
+    return [u.tester,u.owner?'owner':'participant',u.persona||'',u.ctx||'',u.src,u.spent,u.buys.length,
+      u.buys.some(b=>b.kind==='pass')?1:0,u.lead?1:0, ...allQ.map(q=>ans[q]!=null?ans[q]:'')]; });
+  return '﻿'+[head,...rows].map(r=>r.map(cell).join(',')).join('\n');
+}
+
 async function screenAdmin(){
   renderAppbar({title:'검증 대시보드 · admin'}); renderTabbar(null); setAdsVisible(false);
   const mb=document.getElementById('modebar'); if(mb){ mb.style.display=''; mb.innerHTML='<b>ADMIN</b> · 검증 지표 (비공개)'; }
@@ -1710,6 +1801,12 @@ async function screenAdmin(){
   } else {
     const catByAmt = Object.fromEntries(Object.entries(m.catAmt));
     body.innerHTML = `
+    <div class="adm-tabs">
+      <button class="adm-tab is-on" data-tab="agg">합산 결과</button>
+      <button class="adm-tab" data-tab="user">사용자별 응답 · ${sessions.length}명</button>
+    </div>
+    <div id="admUser" class="adm-users" hidden>${renderPerUser(sessions)}</div>
+    <div id="admAgg" class="adm-cols">
     <div class="kpis kpis--2">
       <div class="kpi kpi--brand"><div class="kpi__v">${m.N}명</div><div class="kpi__l">참여 테스터</div></div>
       <div class="kpi"><div class="kpi__v">${pctTxt(m.conversion)}</div><div class="kpi__l">구매 전환율<br>(1건+ 구매)</div></div>
@@ -1823,14 +1920,21 @@ async function screenAdmin(){
     ${m.openSupply.length?`<div class="sectitle">🗣️ 사장님 자유응답 (궁금·걱정·참여조건) · ${m.openSupply.length}건</div>
       <div class="quotes">${m.openSupply.map(o=>`<div class="quote"><span class="quote__tag">${o.q==='concern'?'인테이크 고민':(o.q==='o11'||o.q==='o6')?'걱정·우려':'참여조건'}</span>${esc(o.text)}</div>`).join('')}</div>`:''}
 
+    </div>
     <div class="divider"></div>
     <div class="hl"><span>${ICON.chart}</span><div class="t">데이터 원천 — 이 브라우저 ${srcCounts.local} · 불러온 파일 ${srcCounts.import} · 원격 ${srcCounts.remote}</div></div>
     ${srcCounts.remote===0?`<p class="hint">원격이 0이면 Supabase 읽기 정책(<b>2026-07-07_admin_read.sql</b>)을 아직 안 돌린 거예요. 그전까진 각자 결과화면의 “내 응답 내보내기” JSON을 모아 불러오세요.</p>`:''}
     <button class="btn btn--md btn--soft btn--block" id="imp" style="margin-top:10px">응답 JSON 더 불러오기</button>
     <button class="btn btn--md btn--neutral btn--block" id="expAll" style="margin-top:10px">집계 원본 내보내기 (JSON)</button>
+    <button class="btn btn--md btn--neutral btn--block" id="expCsv" style="margin-top:10px">사용자별 CSV 내보내기 (엑셀)</button>
     <input type="file" id="impF" accept="application/json,.json" multiple hidden>
     <p class="hint center" style="margin-top:12px">테스터 결과화면의 “내 응답 내보내기” JSON들을 모아 불러오면 전체가 합산돼요.</p>`;
   }
+  document.querySelectorAll('.adm-tab').forEach(b=>b.onclick=()=>{
+    document.querySelectorAll('.adm-tab').forEach(x=>x.classList.toggle('is-on', x===b));
+    const t=b.dataset.tab, ag=document.getElementById('admAgg'), us=document.getElementById('admUser');
+    if(ag) ag.hidden = t!=='agg'; if(us) us.hidden = t!=='user';
+  });
   const impBtn=document.getElementById('imp'), impF=document.getElementById('impF');
   if(impBtn && impF){ impBtn.onclick=()=>impF.click();
     impF.onchange=async()=>{ const files=[...impF.files]; let ok=0;
@@ -1840,6 +1944,9 @@ async function screenAdmin(){
   const expAll=document.getElementById('expAll');
   if(expAll) expAll.onclick=()=>{ const blob=new Blob([JSON.stringify({metrics:m,sessions},null,2)],{type:'application/json'});
     const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='ug_admin_aggregate.json'; a.click(); };
+  const expCsv=document.getElementById('expCsv');
+  if(expCsv) expCsv.onclick=()=>{ const blob=new Blob([buildAdminCsv(sessions)],{type:'text/csv;charset=utf-8'});
+    const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='ug_admin_users.csv'; a.click(); };
 }
 
 /* ═══════════ 라우터 ═══════════ */
@@ -1874,6 +1981,8 @@ async function route(){
   // 관리자 대시보드에서만 앱 셸을 데스크톱 폭으로 확장(가독성)
   document.body.classList.toggle('admin-wide', path==='admin'||path==='admin123');
   if(RESEARCH_ON) setTimeout(refreshWallet, 0);   // 화면 렌더 후 지갑 갱신
+  // 새 화면은 항상 맨 위에서 시작(이전 스크롤 위치 잔류 방지) — 렌더 완료 직후 리셋
+  requestAnimationFrame(()=>{ if($screen) $screen.scrollTop=0; });
   switch(path){
     case 'splash': return screenSplash();
     case 'pick': return screenPick();
