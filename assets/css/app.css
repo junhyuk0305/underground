@@ -172,6 +172,9 @@ a{color:inherit;text-decoration:none}
 .hl svg{width:20px;height:20px;color:var(--brand);flex:0 0 20px;margin-top:1px}
 .hl .t{font-size:13.5px;color:var(--brand-soft);font-weight:600;line-height:1.55}
 .hl .t b{color:#fff}
+/* 호스트(라이트) 테마에선 하이라이트 박스 글씨를 전부 검정으로 — 흰 글씨 안 보임 방지 */
+body.theme-host .hl .t{color:#141414}
+body.theme-host .hl .t b{color:#0A0A0A}
 .hint{font-size:12.5px;color:var(--t-3);line-height:1.6}
 .divider{height:1px;background:var(--line);margin:16px 0}
 .sectitle{font-size:13px;font-weight:800;color:var(--t-3);letter-spacing:.02em;margin:22px 0 10px}
@@ -242,9 +245,13 @@ a{color:inherit;text-decoration:none}
 
 /* ── 지도 & 핀 ── */
 .minimap{position:relative;width:100%;height:300px;border-radius:var(--r-lg);overflow:hidden;border:1px solid var(--line);margin-bottom:14px;
+  touch-action:none;cursor:grab;
+  background:radial-gradient(130% 120% at 32% 22%,#17130f 0%,#0a0a0a 62%)}
+.minimap:active{cursor:grabbing}
+/* 드래그로 움직이는 '월드' — 컨테이너보다 커서(inset 음수) 이동해도 빈 여백이 안 보이고, 격자 배경이 함께 움직여 지도처럼 느껴진다 */
+.mm-world{position:absolute;inset:-96px;will-change:transform;
   background:linear-gradient(rgba(255,255,255,.035) 1px,transparent 1px) 0 0/28px 28px,
-    linear-gradient(90deg,rgba(255,255,255,.035) 1px,transparent 1px) 0 0/28px 28px,
-    radial-gradient(130% 120% at 32% 22%,#17130f 0%,#0a0a0a 62%)}
+    linear-gradient(90deg,rgba(255,255,255,.035) 1px,transparent 1px) 0 0/28px 28px}
 .mpin{position:absolute;transform:translate(-50%,-100%);cursor:pointer;border:0;background:none;padding:0;
   display:flex;flex-direction:column;align-items:center;gap:3px}
 .mpin__label{font-size:11px;font-weight:800;letter-spacing:-.01em;white-space:nowrap;color:#fff;

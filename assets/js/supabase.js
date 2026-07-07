@@ -36,3 +36,13 @@ if (HAS_SUPABASE) {
 export const supabase = _supabase;
 // 설문 수집 전용 클라이언트(자극이 mock 이어도 실제 Supabase 로 적재). 키 없으면 null → 조용히 로컬만.
 export const collector = _collector;
+
+/* 대한민국 시간(KST, +09:00) ISO 문자열. 같은 '순간'이되 자릿수 자체가 한국 벽시계.
+ * timestamptz 컬럼에 그대로 넣으면 올바른 instant 로 저장되고, 문자열을 그대로 봐도 한국시간이다.
+ * new Date().toISOString()(UTC·Z) 를 이걸로 대체해 DB·로컬 로그를 전부 KST 로 통일한다. */
+export function kstISO(d = new Date()) {
+  const kst = new Date(d.getTime() + 9 * 3600 * 1000);
+  const p = (n, w = 2) => String(n).padStart(w, '0');
+  return `${kst.getUTCFullYear()}-${p(kst.getUTCMonth() + 1)}-${p(kst.getUTCDate())}T`
+       + `${p(kst.getUTCHours())}:${p(kst.getUTCMinutes())}:${p(kst.getUTCSeconds())}.${p(kst.getUTCMilliseconds(), 3)}+09:00`;
+}

@@ -3,7 +3,7 @@
  * config.js(Supabase) 연결 시 study_events 테이블에도 적재, 없으면 localStorage.
  * 설계: docs/08_검증설계_MVP.md
  */
-import { collector } from './supabase.js';
+import { collector, kstISO } from './supabase.js';
 
 // 앱=테스트(검증) 서비스 하나. 모든 진입자는 항상 검증 모드로 동작한다.
 // (기존 ?study=0 "검증 끄기" 분기 제거 — 실서비스/테스트 구분 없음)
@@ -54,8 +54,8 @@ export function startStudy(personaKey, respondent={}){
   // 참여자 세션에 새어들지 않도록 role 을 STUDY_ROLE 이 아닌 'participant' 로 못박는다.
   const s = { tester:'t_'+rid(), persona:personaKey, home, role:'participant', ctx:STUDY_CTX,
     respondent: { ageRange:respondent.ageRange||null, gender:respondent.gender||null,
-                  nickname:respondent.nickname||null, regionId:home, consentAt:new Date().toISOString() },
-    budget:STUDY_BUDGET, spent:0, events:[], startedAt:new Date().toISOString(), ended:false };
+                  nickname:respondent.nickname||null, regionId:home, consentAt:kstISO() },
+    budget:STUDY_BUDGET, spent:0, events:[], startedAt:kstISO(), ended:false };
   save(s);
   // 응답자 기본정보 1행 적재(익명) — 자극이 mock 이어도 collector 로 실제 Supabase 에 남긴다.
   if(collector){
@@ -72,7 +72,7 @@ export function startStudy(personaKey, respondent={}){
  * getStudy() 가 truthy 가 되어 logEvent 가 이벤트를 남기지만, refreshWallet 은 role==='owner' 를 보고 크레딧 지갑을 숨긴다. */
 export function startOwnerStudy(){
   const s = { tester:'o_'+rid(), persona:null, role:'owner', ctx:STUDY_CTX,
-    budget:0, spent:0, events:[], startedAt:new Date().toISOString(), ended:false };
+    budget:0, spent:0, events:[], startedAt:kstISO(), ended:false };
   save(s);
   return s;
 }
@@ -82,7 +82,7 @@ export function startOwnerStudy(){
 export function saveOwnerIntake(intake={}){
   let s=load();
   if(!s || s.role!=='owner') s=startOwnerStudy();
-  s.ownerIntake = { ...intake, at:new Date().toISOString() };
+  s.ownerIntake = { ...intake, at:kstISO() };
   save(s);
   if(collector){
     collector.from('respondents').insert({
@@ -91,7 +91,7 @@ export function saveOwnerIntake(intake={}){
       role:'owner', ctx:STUDY_CTX, consent:!!intake.consent, created_at:s.ownerIntake.at }).then(null, ()=>{});
   }
   logEvent('owner_intake', {
-    ageRange:intake.ageRange||null, gender:intake.gender||null,
+    ageRange:intake.ageRange||null, gender:intake.gender||null, store_name:intake.storeName||null,
     category:intake.category||null, region:intake.regionId||null, capacity:intake.capacity||null,
     idle_days:intake.idleDays||null, idle_band:intake.idleBand||null, idle_freq:intake.idleFreq||null,
     tried:intake.tried||[], concern:intake.concern||'' });
@@ -109,7 +109,7 @@ export function saveWaitlist(payload={}){
     tester:s?.tester||null, role:s?.role||STUDY_ROLE,
     channel:payload.channel||null, contact:payload.contact||null, region_id:payload.regionId||null,
     interests:payload.interests||[], topics:payload.topics||[], time_pref:payload.timePref||null,
-    note:payload.note||null, ctx:(s&&'ctx' in s)?s.ctx:STUDY_CTX, created_at:new Date().toISOString()
+    note:payload.note||null, ctx:(s&&'ctx' in s)?s.ctx:STUDY_CTX, created_at:kstISO()
   }).then(null, ()=>{});
   return true;
 }
@@ -126,7 +126,7 @@ export async function logEvent(type, payload={}){
   const s = load();
   const role = s?.role || STUDY_ROLE;
   const ctx  = (s && 'ctx' in s) ? s.ctx : STUDY_CTX;
-  const ev = { id:'e_'+rid(), type, payload, at:new Date().toISOString(),
+  const ev = { id:'e_'+rid(), type, payload, at:kstISO(),
     tester:s?.tester||null, persona:s?.persona||null, role, ctx };
   if(s){ (s.events = s.events||[]).push(ev); save(s); }
   if(collector){   // 자극이 mock 이어도 설문 이벤트는 실제 Supabase 로 적재

@@ -467,7 +467,7 @@ const mockDb = {
   },
   // 사장님 계정 기본값: 로그인 즉시 '이미 등록된 매장' 1곳(+개설 요청·진행중·정산 시드)을 보장한다.
   // 어떤 경로로 사장님 모드에 들어와도 요청함·정산·홈이 비지 않게 하는 데모용 안전망.
-  async ensureOwnerVenue() {
+  async ensureOwnerVenue(name) {
     const s = loadMock();
     if (!s.session) return [];
     const mine = s.venues.filter(v => v.owner_id === s.session.id);
@@ -476,7 +476,7 @@ const mockDb = {
     const region = s.regions.find(r => r.id === rid);
     const v = {
       id: uid(), region_id: rid, owner_id: s.session.id,
-      name: '행궁동 골목책방', address: (region?.name || '우리 동네') + ' 일대', category: '책방', capacity: 10,
+      name: (name && name.trim()) || '행궁동 골목책방', address: (region?.name || '우리 동네') + ' 일대', category: '책방', capacity: 10,
       idle_days: '평일', idle_start: '15:00', idle_end: '18:00', slot_minutes: 120,
       images: [], facilities: ['좌식 8석', '핸드드립 커피', '책 4,000권', '스탠드 조명'],
       program_candidates: ['북토크', '글쓰기 워크숍', '필사 모임'],

@@ -114,6 +114,33 @@ function enableDragScroll(el, axis='y'){
   el.addEventListener('click', e=>{ if(moved){ e.preventDefault(); e.stopPropagation(); moved=false; } }, true);
 }
 
+/* 스타일라이즈드(가상) 지도도 실제 지도처럼 드래그로 움직이게 — 핀을 감싼 '월드'를 pan.
+ * 카카오 실 지도는 원래 드래그 가능하고, 이건 폴백(가상) 지도 전용. 핀 클릭은 살린다. */
+function enableMockMapPan(host){
+  if(!host || host._panBound) return; host._panBound=true;
+  const world=document.createElement('div');
+  world.className='mm-world';
+  while(host.firstChild) world.appendChild(host.firstChild);
+  host.appendChild(world);
+  const RANGE=90; // 각 축 최대 이동량(px) — 월드가 컨테이너보다 커서 빈 여백이 안 보임
+  const clamp=v=>Math.max(-RANGE,Math.min(RANGE,v));
+  let x=0,y=0,down=false,sx=0,sy=0,bx=0,by=0,moved=false;
+  const apply=()=>{ world.style.transform=`translate(${x}px,${y}px)`; };
+  host.addEventListener('pointerdown', e=>{ if(e.pointerType==='mouse' && e.button!==0) return;
+    down=true; moved=false; sx=e.clientX; sy=e.clientY; bx=x; by=y;
+    try{ host.setPointerCapture(e.pointerId); }catch(_){}
+  });
+  host.addEventListener('pointermove', e=>{ if(!down) return;
+    const dx=e.clientX-sx, dy=e.clientY-sy;
+    if(!moved && Math.hypot(dx,dy)>6) moved=true;
+    if(moved){ x=clamp(bx+dx); y=clamp(by+dy); apply(); }
+  });
+  const up=e=>{ if(!down) return; down=false; try{ host.releasePointerCapture(e.pointerId); }catch(_){} };
+  host.addEventListener('pointerup', up); host.addEventListener('pointercancel', up);
+  // 드래그였으면 핀 클릭(공간 진입) 억제, 탭이면 통과
+  host.addEventListener('click', e=>{ if(moved){ e.preventDefault(); e.stopPropagation(); moved=false; } }, true);
+}
+
 /* ── 지역 선택 바텀시트(검색형) ── */
 function openRegionPicker({ selected, title='지역 선택', onPick }){
   const wrap=document.createElement('div'); wrap.className='modal';
@@ -308,7 +335,8 @@ async function beginOwnerDemo(intake={}){
     await db.verifyResident({ regionId:region, displayName:(intake.nickname||'').trim()||'데모 사장님', interests:[], bio:'', isHost:false });
     await boot();
     // 기본 데모 매장 1곳(+개설 요청·진행중·정산) 보장 → 요청함·정산·홈이 처음부터 살아있다
-    await db.ensureOwnerVenue();
+    // 인테이크에서 받은 가게 이름이 있으면 데모 매장 이름으로 그대로 쓴다(처음 생성 시 1회).
+    await db.ensureOwnerVenue(intake.storeName);
     await boot();
     state.ownerMode=true;
     logEvent('owner_demo_start', { ctx: STUDY_CTX });
@@ -506,6 +534,7 @@ async function screenMap(){
     kmapEl.classList.add('minimap');
     kmapEl.innerHTML=stylizedPins();
     kmapEl.querySelectorAll('[data-v]').forEach(el=>el.onclick=()=>go('#/venue/'+el.dataset.v));
+    enableMockMapPan(kmapEl);
   });
 }
 /* 지도 바텀시트: 접힘(핀 잘 보임) ↔ 펼침(목록). 헤더 드래그 + 그립 탭 토글. */
@@ -726,6 +755,7 @@ async function screenHostBrowse(){
         hbmap.classList.add('minimap');
         hbmap.innerHTML = venues.filter(v=>v.mx!=null).map(v=>`<button class="mpin ${v.live?'mpin--live':'mpin--dim'}" style="left:${v.mx}%;top:${v.my}%" data-hv="${v.id}"><span class="mpin__dot"></span><span class="mpin__label">${esc(v.name)}</span></button>`).join('') || `<div class="empty" style="margin:auto"><div class="ic">🗺️</div>지도에 표시할 위치 정보가 아직 없어요.</div>`;
         hbmap.querySelectorAll('[data-hv]').forEach(el=>el.onclick=()=>go('#/host-apply/'+el.dataset.hv));
+        enableMockMapPan(hbmap);
       });
     }
   };
@@ -1196,7 +1226,7 @@ function screenStudy(){
     try{ const saved=sessionStorage.getItem(INTAKE_KEY); if(saved) state.intake={ ...JSON.parse(saved) }; }catch(e){}
     if(state.intake?.consent) return beginStudy(auto);
   }
-  if(!state.intake) state.intake={ consent:false, ageRange:'', gender:'', nickname:'', regionId:'', persona:'', category:'', role: STUDY_ROLE==='owner'?'owner':'participant' };
+  if(!state.intake) state.intake={ consent:false, ageRange:'', gender:'', nickname:'', storeName:'', regionId:'', persona:'', category:'', role: STUDY_ROLE==='owner'?'owner':'participant' };
   if(!state.intake.role) state.intake.role = STUDY_ROLE==='owner'?'owner':'participant';
   const iv=state.intake;
   const isOwner=iv.role==='owner';
@@ -1212,6 +1242,11 @@ function screenStudy(){
         <div class="chips" id="ocat">${OWNER_CAT_OPTIONS.map(c=>`<button type="button" class="chip" data-cat="${esc(c)}" aria-pressed="${iv.category===c}">${esc(c)}</button>`).join('')}</div></div>`
     : `<div class="field"><label>동네를 어떻게 쓰세요? <span class="hint" style="font-weight:600;color:var(--brand)">· 필수</span></label>
         <div class="persona-pick">${PERSONAS.map(p=>`<button type="button" class="card persona-card persona-card--sm ${iv.persona===p.key?'is-sel':''}" data-p="${p.key}" title="${esc(personaDesc(p, iv.regionId))}"><div class="pc-emo">${p.emoji}</div><div class="mt">${esc(p.short||p.label)}</div></button>`).join('')}</div></div>`;
+  // 사장님만: 가게 이름을 맨 처음 받는다(데모 매장 이름으로 그대로 반영).
+  const storeField = isOwner
+    ? `<div class="field"><label>가게 이름 <span class="hint" style="font-weight:600;color:var(--brand)">· 필수</span></label>
+        <input class="input" id="storeName" placeholder="예: 행궁동 골목책방" value="${esc(iv.storeName||'')}"></div>`
+    : '';
   // 참여자·사장님 공통 기본정보 폼(설문식) — 이메일·위치허용 없이 나이대·성별·닉네임·지역만.
   const regionLabel = isOwner ? '가게가 있는 지역' : '실제 거주 지역';
   const regionPh    = isOwner ? '가게 동네 선택 (예: 마포구)' : '내 동네 선택 (예: 마포구)';
@@ -1231,7 +1266,7 @@ function screenStudy(){
     ${roleSpecific}
 
     <label class="check" style="margin-top:6px"><input type="checkbox" id="consent" ${iv.consent?'checked':''}><span class="box">${ICON.check}</span>
-      <span><b>개인정보 수집·이용에 동의</b>합니다. (나이대·성별·닉네임·거주지역·${isOwner?'업종':'선택기록'}을 <b>익명</b>으로 설문 목적에만 사용, 언제든 파기 요청 가능)</span></label>
+      <span><b>개인정보 수집·이용에 동의</b>합니다. (${isOwner?'가게이름·나이대·성별·닉네임·가게지역·업종':'나이대·성별·닉네임·거주지역·선택기록'}을 <b>익명</b>으로 설문 목적에만 사용, 언제든 파기 요청 가능)</span></label>
 
     <div class="gate__cta" style="margin-top:14px"><button class="btn btn--lg btn--primary btn--block" id="start">${isOwner?'동의하고 사장님 센터 열기':'동의하고 시작하기'}</button></div>`;
   scrRaw(`<div class="gate"><div class="gate__inner" style="text-align:left">
@@ -1239,6 +1274,7 @@ function screenStudy(){
     <h1 style="text-align:center">잠깐,<br>당신을 알려주세요</h1>
     <p style="text-align:center">${isOwner?'익명으로 진행돼요. 기본 정보만 받고 <b>바로 사장님 센터</b>가 열려요.':`익명으로 진행돼요. 아래를 채우면 <b>당신 동네의 진짜 지도</b>가 열리고 <b>${won(STUDY_BUDGET)} 크레딧</b>을 드려요.`}</p>
     ${roleSeg}
+    ${storeField}
     ${form}
     </div></div>`);
 
@@ -1248,6 +1284,7 @@ function screenStudy(){
   scope.querySelectorAll('#ageChips [data-age]').forEach(el=>el.onclick=()=>{ iv.ageRange=el.dataset.age; scope.querySelectorAll('#ageChips [data-age]').forEach(x=>x.setAttribute('aria-pressed', x.dataset.age===iv.ageRange)); });
   scope.querySelectorAll('#genderChips [data-gender]').forEach(el=>el.onclick=()=>{ iv.gender=el.dataset.gender; scope.querySelectorAll('#genderChips [data-gender]').forEach(x=>x.setAttribute('aria-pressed', x.dataset.gender===iv.gender)); });
   scope.querySelector('#nick').oninput=e=>{ iv.nickname=e.target.value; };
+  const snEl=scope.querySelector('#storeName'); if(snEl) snEl.oninput=e=>{ iv.storeName=e.target.value; };
   scope.querySelector('#consent').onchange=e=>{ iv.consent=e.target.checked; };
   // 참여자: 페르소나 / 사장님: 업종 (둘 중 렌더된 것만 존재)
   scope.querySelectorAll('[data-p]').forEach(el=>el.onclick=()=>{ iv.persona=el.dataset.p; scope.querySelectorAll('[data-p]').forEach(x=>x.classList.toggle('is-sel', x.dataset.p===iv.persona)); });
@@ -1260,14 +1297,15 @@ function screenStudy(){
     if(!iv.ageRange) return toast('나이대를 골라 주세요.','err');
     if(!iv.gender)   return toast('성별을 골라 주세요.','err');
     if(!iv.regionId) return toast(isOwner?'가게 지역을 선택해 주세요.':'거주 지역을 선택해 주세요.','err');
-    if(isOwner){ if(!iv.category) return toast('업종을 골라 주세요.','err'); }
+    if(isOwner){ if(!(iv.storeName||'').trim()) return toast('가게 이름을 입력해 주세요.','err');
+                 if(!iv.category) return toast('업종을 골라 주세요.','err'); }
     else       { if(!iv.persona)  return toast('동네를 어떻게 쓰는지 골라 주세요.','err'); }
     if(!iv.consent)  return toast('개인정보 수집·이용에 동의해 주세요.','err');
     if(isOwner){
       // ?role=owner 를 URL 에 심어 이후 리로드(라이브 mock 재진입)에도 STUDY_ROLE 이 owner 로 유지되게.
       // mock(설문 배포)에선 리로드 없이 세션 role='owner' 로 바로 사장님 센터가 열린다.
       try{ const u=new URL(window.location.href); u.searchParams.set('role','owner'); history.replaceState({},'',u.pathname+u.search+'#/study'); }catch(e){}
-      beginOwnerDemo({ ageRange:iv.ageRange, gender:iv.gender, nickname:(iv.nickname||'').trim(), regionId:iv.regionId, category:iv.category, consent:true });
+      beginOwnerDemo({ ageRange:iv.ageRange, gender:iv.gender, nickname:(iv.nickname||'').trim(), storeName:(iv.storeName||'').trim(), regionId:iv.regionId, category:iv.category, consent:true });
     } else beginStudy(iv.persona);
   };
 }
@@ -1403,37 +1441,37 @@ function afterFirstSpend(m, done){ maybeAskWtp(m, ()=> maybeAskSolo(done)); }
 /* ═══════════ 앱 내 설문 #/survey (docs/08 §6) — role 분기 ═══════════ */
 function surveyQuestions(role){
   if(role==='owner') return [
-    { id:'o1', type:'scale5', q:'우리 가게에 손님이 없는 비는 시간(데드타임)이 있나요?', lo:'거의 없다', hi:'매일 있다' },
-    { id:'o2', type:'single',  q:'방금 둘러보신 중 가장 끌린 점은?', opts:['비는 시간 매출','신규 손님·단골 유입','가게 홍보·포트폴리오','내가 승인·거절 통제','딱히 없음'] },
-    { id:'o3', type:'single',  q:'가장 걱정되는 점은?', opts:['낯선 모임·소음','물건 파손·책임','기존 단골과 시간 겹침','정산·수익성','운영 번거로움','없음'] },
-    { id:'o4', type:'scale5', q:'이 서비스가 비는 시간을 매출로 바꾸는 데 도움이 될까요?', lo:'전혀', hi:'매우' },
-    { id:'o5', type:'single',  q:'참가비 분배에 더해, 손님이 매장에서 쓰는 주문(F&B)까지 있으면 해볼 만한가요?', opts:['확실히 그렇다','어느 정도','잘 모르겠다','아니다'] },
-    { id:'o6', type:'single',  q:'한 타임에 매장 몫이 얼마면 시간을 내주시겠어요?', opts:['1만↓','1~3만','3~5만','5만↑','금액 무관'] },
-    { id:'o7', type:'single',  q:'무료 시범 1타임, 열어보실 의향은?', opts:['바로 좋아요','조건 맞으면','좀 더 생각','아니오'] },
-    { id:'o8', type:'single',  q:'전에 이런 걸 시도해 보신 적 있어요?', opts:['대관','원데이 클래스','모임·소셜 유치','해본 적 없다'] },
-    { id:'o9', type:'scale5', q:'이 모임으로 온 손님이 우리 가게 단골로 이어질 것 같나요?', lo:'아니다', hi:'그렇다' },
+    { id:'o1', type:'scale5', q:'우리 가게에 손님이 없는 유휴 시간(데드타임)이 있나요?', lo:'거의 없다', hi:'매일 있다' },
+    { id:'o2', type:'single',  q:'방금 살펴보신 기능 중 가장 끌린 점은 무엇인가요?', opts:['비는 시간 매출','신규 손님·단골 유입','가게 홍보·포트폴리오','내가 승인·거절 통제','딱히 없음'] },
+    { id:'o3', type:'single',  q:'가장 걱정되는 점은 무엇인가요?', opts:['낯선 모임·소음','물건 파손·책임','기존 단골과 시간 겹침','정산·수익성','운영 번거로움','없음'] },
+    { id:'o4', type:'scale5', q:'이 서비스가 유휴 시간을 매출로 바꾸는 데 도움이 될까요?', lo:'전혀', hi:'매우' },
+    { id:'o5', type:'single',  q:'참가비 분배에 더해, 손님이 매장에서 주문하는 금액(F&B)까지 생긴다면 참여할 만한가요?', opts:['확실히 그렇다','어느 정도','잘 모르겠다','아니다'] },
+    { id:'o6', type:'single',  q:'한 타임에 매장 몫이 어느 정도면 시간을 내주시겠어요?', opts:['1만↓','1~3만','3~5만','5만↑','금액 무관'] },
+    { id:'o7', type:'single',  q:'무료 시범 1타임을 열어 보실 의향이 있으신가요?', opts:['바로 좋아요','조건 맞으면','좀 더 생각','아니오'] },
+    { id:'o8', type:'single',  q:'이전에 이런 시도를 해 보신 적이 있나요?', opts:['대관','원데이 클래스','모임·소셜 유치','해본 적 없다'] },
+    { id:'o9', type:'scale5', q:'이 모임으로 방문한 손님이 단골로 이어질 것 같으신가요?', lo:'아니다', hi:'그렇다' },
     { id:'o10', type:'open',   q:'어떤 조건이면 확실히 참여하시겠어요?', optional:true },
-    { id:'o11', type:'open',   q:'해보기 전에 제일 걸리는 점, 솔직하게 하나만요.', optional:true },
-    { id:'o12', type:'open',   q:'마지막으로, 더 하고 싶은 말씀 남겨 주세요.', optional:true, ph:'무엇이든 편하게 적어 주세요' },
+    { id:'o11', type:'open',   q:'시작하기 전 가장 걱정되는 점을 하나만 적어 주세요.', optional:true },
+    { id:'o12', type:'open',   q:'마지막으로 더 하고 싶은 말씀이 있다면 자유롭게 남겨 주세요.', optional:true, ph:'무엇이든 자유롭게 적어 주세요' },
   ];
   return [
-    { id:'q1', type:'scale5', q:"평소 '혼자 가도 괜찮은, 취향 맞는 동네 모임'이 없어 아쉬웠던 적?", lo:'전혀', hi:'자주' },
-    { id:'q2', type:'single',  q:'방금 써보신 중 가장 끌린 지점은?', opts:['로컬 전용 지도','단골 공간 모임','검증된 호스트','혼자 가도 부담 없음','딱히 없었다'] },
-    { id:'q3', type:'single',  q:'문토·남의집 같은 기존 앱과 다르게 느꼈나요?', opts:['확실히 다름','조금','비슷','모르겠다'] },
-    { id:'q4', type:'single',  q:'우리 동네에 진짜 생기면 써보시겠어요?', opts:['당장 쓴다','모임 괜찮으면','무료면','안 쓴다'] },
-    { id:'q5', type:'nps',     q:'친구에게 추천할 의향은?' },
-    { id:'q6', type:'single',  q:'참가비, 얼마가 가장 적당했나요?', opts:['5천↓','8천','1만','1.5만','2만↑'] },
-    { id:'q7', type:'single',  q:'가장 망설여지는 점은?', opts:['낯선 사람','가격','좋은 호스트일지','내 동네 매장 유무','혼자가 어색','없음'] },
-    { id:'q8', type:'single',  q:'요즘 당신은?', opts:['취준·휴학','프리랜서·재택','직장인','이주·정착','기타'] },
-    { id:'q9', type:'scale5', q:'이런 모임 다니면 동네에 아는 얼굴이 늘 것 같나요?', lo:'아니다', hi:'그렇다' },
-    { id:'q10', type:'open',   q:'딱 하나 바꾸고 싶은 게 있다면?', optional:true },
-    { id:'q11', type:'open',   q:'써보다 걸리거나 궁금했던 거, 하나만 편하게 적어줘요.', optional:true },
-    { id:'q12', type:'open',   q:'마지막으로, 하고 싶은 말 편하게 남겨주세요!', optional:true, ph:'좋았던 점도, 아쉬운 점도 편하게' },
+    { id:'q1', type:'single',  q:'혼자 가도 부담 없이 취향이 맞는 동네 모임이 필요할 때, 지금은 주로 어떻게 하시나요?', opts:['참을 만한 데가 없어 그냥 안 간다','문토·소모임 등 기존 앱을 쓴다','아는 사람에게 같이 가자고 한다','혼자 카페·전시 등을 다닌다','딱히 필요를 느낀 적 없다'] },
+    { id:'q2', type:'single',  q:'방금 사용해 보신 기능 중 가장 끌린 점은 무엇인가요?', opts:['로컬 전용 지도','단골 공간 모임','검증된 호스트','혼자 가도 부담 없음','딱히 없었다'] },
+    { id:'q3', type:'single',  q:'문토·남의집 등 기존 서비스와 다르다고 느끼셨나요?', opts:['확실히 다름','조금','비슷','모르겠다'] },
+    { id:'q4', type:'single',  q:'우리 동네에 실제로 생긴다면 이용해 보시겠어요?', opts:['당장 쓴다','모임 괜찮으면','무료면','안 쓴다'] },
+    { id:'q5', type:'nps',     q:'주변에 추천하실 의향은 어느 정도인가요?' },
+    { id:'q6', type:'single',  q:'참가비는 어느 정도가 적당하다고 생각하시나요?', opts:['5천↓','8천','1만','1.5만','2만↑'] },
+    { id:'q7', type:'single',  q:'한 달에 몇 번 정도 참여하실 것 같으신가요?', opts:['0회','1회','2~3회','4회 이상'] },
+    { id:'q8', type:'single',  q:'이용을 가장 망설이게 하는 점은 무엇인가요?', opts:['낯선 사람','가격','좋은 호스트일지','내 동네 매장 유무','혼자가 어색','없음'] },
+    { id:'q9', type:'single',  q:'현재 어떤 상황에 가장 가까우신가요?', opts:['취준·휴학','프리랜서·재택','직장인','이주·정착','기타'] },
+    { id:'q10', type:'scale5', q:'이런 모임에 참여하면 동네에 아는 얼굴이 늘 것 같으신가요?', lo:'아니다', hi:'그렇다' },
+    { id:'q11', type:'open',   q:'딱 하나 개선했으면 하는 점이 있다면 무엇인가요?', optional:true },
+    { id:'q12', type:'open',   q:'이용하시면서 궁금하거나 걱정되셨던 점을 자유롭게 적어 주세요.', optional:true, ph:'좋았던 점, 아쉬운 점 모두 좋습니다' },
   ];
 }
 function renderQuestion(q){
   const head=`<div class="sv-q"><div class="sv-q__t">${esc(q.q)}${q.optional?' <span class="sub">(선택)</span>':''}</div>`;
-  if(q.type==='open') return head+`<textarea class="textarea" data-q="${q.id}" data-open placeholder="${esc(q.ph||'자유롭게 적어주세요')}"></textarea></div>`;
+  if(q.type==='open') return head+`<textarea class="textarea" data-q="${q.id}" data-open placeholder="${esc(q.ph||'자유롭게 적어 주세요')}"></textarea></div>`;
   if(q.type==='nps') return head+`<div class="nps" data-q="${q.id}">${Array.from({length:11},(_,i)=>`<button type="button" class="nps__b" data-v="${i}" aria-pressed="false">${i}</button>`).join('')}</div><div class="scale-lbl"><span>추천 안 함</span><span>적극 추천</span></div></div>`;
   if(q.type==='scale5') return head+`<div class="chips chips--scale" data-q="${q.id}">${[1,2,3,4,5].map(v=>`<button type="button" class="chip chip--scale" data-v="${v}" aria-pressed="false">${v}</button>`).join('')}</div><div class="scale-lbl"><span>${esc(q.lo||'')}</span><span>${esc(q.hi||'')}</span></div></div>`;
   return head+`<div class="chips" data-q="${q.id}">${q.opts.map(o=>`<button type="button" class="chip" data-v="${esc(o)}" aria-pressed="false">${esc(o)}</button>`).join('')}</div></div>`;
@@ -1444,7 +1482,7 @@ function bindQuestion(scope, q, ans, prog){
   box.querySelectorAll('button').forEach(b=>b.onclick=()=>{ ans[q.id]=b.dataset.v; box.querySelectorAll('button').forEach(x=>x.setAttribute('aria-pressed', x===b)); prog(); });
 }
 function screenSurvey(){
-  renderAppbar({title:'마지막 30초', back:false}); renderTabbar(null); setAdsVisible(false);
+  renderAppbar({title:'마지막 한 걸음', back:true, onBack:()=>history.back()}); renderTabbar(null); setAdsVisible(false);
   const mb=document.getElementById('modebar'); if(mb) mb.innerHTML='';
   // 역할은 세션 기준(리로드 없이 인라인 진입해도 정확). 세션이 없으면 URL(STUDY_ROLE)로 폴백.
   const role = getStudy()?.role || STUDY_ROLE;
@@ -1452,11 +1490,11 @@ function screenSurvey(){
   const s = getStudy(); const tester = s?.tester || null;
   const ans = loadSurveyDraft(tester);   // 이 tester 의 저장된 초안 복원(도중 이탈 대비)
   const intro = role==='owner'
-    ? '1분이면 돼요. 사장님 답이 다음 사장님을 설득할 근거가 돼요.'
-    : '마지막 30초만요. 방금 써보신 언더그라운드맵, 솔직한 한마디가 저희에겐 진짜 큰 데이터예요.';
+    ? '1분이면 충분합니다. 사장님의 답변이 다음 사장님을 설득할 근거가 됩니다.'
+    : '방금 사용해 보신 언더그라운드맵, 솔직한 의견을 들려주시면 큰 도움이 됩니다.';
   fscr(`
     <div class="wbar" id="svProg"><span style="width:0%"></span></div>
-    <p class="hint" style="margin:6px 0 14px">30초면 끝나요 · 총 ${qs.length}개</p>
+    <p class="hint" style="margin:6px 0 14px">1분이면 끝나요 · 총 ${qs.length}개</p>
     <h1 class="dtitle" style="margin-top:0;font-size:19px;line-height:1.5">${esc(intro)}</h1>
     <div id="svList" style="margin-top:12px">${qs.map(renderQuestion).join('')}</div>`,
     `<button class="btn btn--lg btn--primary btn--block" id="svDone">완료</button>
@@ -1467,7 +1505,7 @@ function screenSurvey(){
   applySurveyDraft(list, qs, ans); prog();   // 복원한 답을 화면·진행바에 반영
   const submit=(skipped)=>{
     const nps  = role==='owner' ? null : (ans['q5']!=null ? +ans['q5'] : null);
-    const open = role==='owner' ? (ans['o10']||'') : (ans['q10']||'');
+    const open = role==='owner' ? (ans['o10']||'') : (ans['q11']||'');
     logEvent('survey_response', { role, answers:ans, nps, open, skipped:!!skipped });
     clearSurveyDraft();   // 제출 완료 → 초안 비움
     go(role==='owner' ? '#/thanks' : '#/lead');
@@ -1610,7 +1648,7 @@ function computeMetrics(all){
   const abandonCats={};   // 예산 부족으로 못 담은 것(가격 상한·최고수요)
   const skipReasons={};   // 잔액 남긴 이유(미충족 수요·가격/시간 미스매치)
   const surveys=[]; let intendNow=0, overclaim=0;   // 진술↔행동 갭(Q4 vs 실제결제)
-  const openDemand=[];   // 청년 자유응답(q10 바꾸고싶은것 · q11 궁금·걱정) — "그들의 궁금증"을 직접 읽는 창(C)
+  const openDemand=[];   // 청년 자유응답(q11 개선점 · q12 궁금·걱정) — "그들의 궁금증"을 직접 읽는 창(C)
   const byCtx={};   // 컨텍스트별 요약(A/B 이터레이션)
   sessions.forEach(s=>{ if(s.persona) persona[s.persona]=(persona[s.persona]||0)+1;
     const budget=s.budget||30000; const evs=s.events||[];
@@ -1641,7 +1679,7 @@ function computeMetrics(all){
       if(e.type==='study_end'){ (e.payload?.reasons||[]).forEach(r=>skipReasons[r]=(skipReasons[r]||0)+1); }
       if(e.type==='survey_response'&&e.payload?.role!=='owner') sv=e.payload; });
     if(sv){ surveys.push(sv); const q4=sv.answers?.q4; if(q4==='당장 쓴다'){ intendNow++; if(spent<=0) overclaim++; }
-      ['q12','q11','q10'].forEach(qid=>{ const t=(sv.answers?.[qid]||'').trim(); if(t) openDemand.push({ q:qid, text:t }); }); }
+      ['q12','q11'].forEach(qid=>{ const t=(sv.answers?.[qid]||'').trim(); if(t) openDemand.push({ q:qid, text:t }); }); }
   });
   // NPS = (9~10%) − (0~6%)
   const npsVals=surveys.map(x=>x.nps).filter(v=>v!=null);
@@ -1687,7 +1725,7 @@ function computeMetrics(all){
     soloAlone: solo.length?solo.filter(Boolean).length/solo.length:null, soloN:solo.length,
     wtpN:wtp.length, wtpPay: wtp.length?wtp.filter(w=>w.would_pay_real).length/wtp.length:null, leads,
     viewN, viewCats, interestN, notifyCats, notifyTopics, abandonN, abandonCats, skipReasons,
-    surveyN:surveys.length, nps, q2:surveyDist('q2'), q4:surveyDist('q4'), q7:surveyDist('q7'), q8:surveyDist('q8'),
+    surveyN:surveys.length, nps, q1:surveyDist('q1'), q2:surveyDist('q2'), q4:surveyDist('q4'), q7:surveyDist('q7'), q8:surveyDist('q8'), q9:surveyDist('q9'),
     intendNow, overclaim, overclaimRate: intendNow?overclaim/intendNow:null,
     byCtx: Object.values(byCtx).sort((a,b)=>b.N-a.N),
     openDemand, openSupply,
@@ -1873,10 +1911,12 @@ async function screenAdmin(){
         <div class="kpi ${m.nps>=0?'kpi--brand':''}"><div class="kpi__v">${m.nps==null?'—':m.nps}</div><div class="kpi__l">NPS<br>(추천%−비추천%)</div></div>
         <div class="kpi"><div class="kpi__v">${pctTxt(m.overclaimRate)}</div><div class="kpi__l">과대진술<br>“당장 쓴다”·지출0</div></div>
       </div>
+      <div class="sectitle">Q1 지금은 어떻게 하나(문제 상황)</div>${rankRows(m.q1,'명')}
       <div class="sectitle">Q4 사용 의향</div>${rankRows(m.q4,'명')}
       <div class="sectitle">Q2 가장 끌린 지점</div>${rankRows(m.q2,'명')}
-      <div class="sectitle">Q7 가장 망설여지는 점(리스크)</div>${rankRows(m.q7,'명')}
-      <div class="sectitle">Q8 타깃 페르소나 적중</div>${rankRows(m.q8,'명')}`:''}
+      <div class="sectitle">Q7 월 참여 예상 횟수(빈도)</div>${rankRows(m.q7,'명')}
+      <div class="sectitle">Q8 가장 망설여지는 점(리스크)</div>${rankRows(m.q8,'명')}
+      <div class="sectitle">Q9 타깃 페르소나 적중</div>${rankRows(m.q9,'명')}`:''}
 
     ${(m.byCtx.length>1 || (m.byCtx[0] && m.byCtx[0].ctx!=='(기타)'))?`<div class="sectitle">컨텍스트별(ctx) 이터레이션</div>
       <div class="ctxtable">${m.byCtx.map(c=>`<div class="ctxrow"><b>${esc(c.ctx)}</b><span>완주 ${c.N} · 결제 ${c.buyers} · GMV ${won(c.gmv)} · 리드 ${c.leads}</span></div>`).join('')}</div>`:''}
@@ -1920,7 +1960,7 @@ async function screenAdmin(){
     ${Object.keys(m.supply.prog||{}).length?`<div class="sectitle">🔔 사장님 시범 희망 프로그램 (공급)</div>${rankRows(m.supply.prog,'곳')}`:''}
 
     ${m.openDemand.length?`<div class="sectitle">🗣️ 청년 자유응답 (궁금·걱정·바라는 것) · ${m.openDemand.length}건</div>
-      <div class="quotes">${m.openDemand.map(o=>`<div class="quote"><span class="quote__tag">${o.q==='q11'?'궁금·걱정':'바꾸고싶은것'}</span>${esc(o.text)}</div>`).join('')}</div>`:''}
+      <div class="quotes">${m.openDemand.map(o=>`<div class="quote"><span class="quote__tag">${o.q==='q12'?'궁금·걱정':'개선점'}</span>${esc(o.text)}</div>`).join('')}</div>`:''}
     ${m.openSupply.length?`<div class="sectitle">🗣️ 사장님 자유응답 (궁금·걱정·참여조건) · ${m.openSupply.length}건</div>
       <div class="quotes">${m.openSupply.map(o=>`<div class="quote"><span class="quote__tag">${o.q==='concern'?'인테이크 고민':(o.q==='o11'||o.q==='o6')?'걱정·우려':'참여조건'}</span>${esc(o.text)}</div>`).join('')}</div>`:''}
 
