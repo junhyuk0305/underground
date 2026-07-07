@@ -516,11 +516,11 @@ a{color:inherit;text-decoration:none}
 .promo__ds{font-size:12.5px;color:var(--t-3,#9a968f);margin-top:3px;line-height:1.4}
 .promo__go{flex:0 0 auto;font-size:12px;font-weight:800;color:var(--brand);white-space:nowrap}
 
-/* ── 좌측 서비스 소개 배너(3자 관계) ── */
-.rel-banner{width:300px;max-width:100%;background:linear-gradient(165deg,#141210,#0b0b0b);border:1px solid #262019;border-radius:20px;padding:24px 22px}
+/* ── 좌측 서비스 설명 배너 캐러셀(이해관계자 + 쉬운 설명 4종) ── */
+.rel-banner{width:300px;max-width:100%;min-height:600px;display:flex;flex-direction:column;background:linear-gradient(165deg,#141210,#0b0b0b);border:1px solid #262019;border-radius:20px;padding:24px 22px}
 .rel-brand{font-size:13px;font-weight:800;color:var(--brand);letter-spacing:-.01em}
 .rel-tit{font-size:23px;font-weight:900;line-height:1.28;letter-spacing:-.03em;color:#f4f4f6;margin:10px 0 20px}
-.rel-flow{display:flex;flex-direction:column}
+.rel-flow{display:flex;flex-direction:column;flex:1}
 .rel-node{position:relative;display:flex;gap:12px;align-items:flex-start;background:#151515;border:1px solid #242424;border-radius:14px;padding:14px 14px}
 .rel-node--host{border-color:#3a2413;background:linear-gradient(160deg,#1c1108,#121110)}
 .rel-emo{font-size:26px;line-height:1;flex:0 0 auto}
@@ -533,6 +533,28 @@ a{color:inherit;text-decoration:none}
 .rel-foot{margin-top:18px;padding-top:15px;border-top:1px solid #242424;font-size:12px;line-height:1.6;color:#b9b4ac}
 .rel-foot b{color:var(--brand)}
 .rel-foot span{color:#7c776f}
+
+/* 설명 배너 공통 본문(사용법·로컬·혼자) */
+.exp-body{flex:1;display:flex;flex-direction:column;gap:10px}
+.exp-num{flex:0 0 auto;width:26px;height:26px;border-radius:999px;background:var(--brand);color:#160a03;font-size:14px;font-weight:900;display:flex;align-items:center;justify-content:center}
+/* 정산 스택 바 */
+.exp-stack{display:flex;height:16px;border-radius:999px;overflow:hidden;gap:2px;margin:2px 0 6px}
+.exp-seg{display:block;height:100%;border-radius:4px}
+.exp-seg--venue{background:var(--brand)}
+.exp-seg--host{background:#c9743c}
+.exp-seg--fee{background:#4a453d}
+.exp-legend{display:flex;flex-direction:column;gap:11px}
+.exp-leg{display:flex;gap:10px;align-items:flex-start}
+.exp-leg b{display:block;font-size:13.5px;font-weight:800;color:#f4f4f6}
+.exp-leg small{display:block;font-size:11.5px;color:#8a857d;margin-top:2px}
+.exp-dot{flex:0 0 auto;width:11px;height:11px;border-radius:4px;margin-top:3px}
+.exp-dot--venue{background:var(--brand)}
+.exp-dot--host{background:#c9743c}
+.exp-dot--fee{background:#4a453d}
+/* 캐러셀 인디케이터 */
+.exp-dots{display:flex;gap:7px;justify-content:center;margin-top:18px}
+.exp-dots span{width:6px;height:6px;border-radius:999px;background:#3a352e;transition:width .3s,background .3s}
+.exp-dots span.on{width:18px;background:var(--brand)}
 
 /* 하우스 슬롯 보강 */
 .ad-slot__emo{font-size:34px;margin:6px 0 2px}
