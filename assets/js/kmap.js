@@ -54,6 +54,16 @@ export async function mountKakaoMap(container, venues, onPick, opts = {}){
     container.classList.add('kmap--ready');
     // 지도 컨테이너가 뒤늦게 보이면 타일이 깨지므로 리레이아웃
     setTimeout(() => { try { map.relayout(); if (pts[0]) map.setCenter(new kakao.maps.LatLng(pts[0].lat, pts[0].lng)); if (pts.length>1){ const b=new kakao.maps.LatLngBounds(); pts.forEach(v=>b.extend(new kakao.maps.LatLng(v.lat,v.lng))); map.setBounds(b,46,40,46,40);} } catch(e){} }, 120);
-    return true;
+    // ⚠ 도메인 미등록/타일 인증 실패면 new Map()·load()는 예외 없이 성공하지만 타일이 영영 안 그려진다(회색 지도).
+    //   'tilesloaded'(타일 실제 로드 완료)를 기다려, 3초 안에 안 오면 렌더 실패로 보고 false → 앱이 스타일라이즈드 폴백으로 강등.
+    //   성공 시엔 즉시(위) kmap--ready 로 다크 필터가 적용돼 매끄럽고, 실패 시에만 필터를 걷어 폴백 지도가 원색으로 뜨게 한다.
+    return await new Promise((resolve) => {
+      let settled = false;
+      const succeed = () => { if (settled) return; settled = true; clearTimeout(t); resolve(true); };
+      const failout = () => { if (settled) return; settled = true; container.classList.remove('kmap--ready'); resolve(false); };
+      const t = setTimeout(failout, 3000);
+      try { kakao.maps.event.addListener(map, 'tilesloaded', succeed); }
+      catch(e) { succeed(); }   // 이벤트 등록 자체가 안 되면 낙관적으로 표시(기존 동작 유지)
+    });
   } catch(e){ return false; }
 }

@@ -54,15 +54,21 @@ const _restHeaders = () => ({
 });
 const _QKEY = 'ug_collect_retry_v1';
 function _queue(table, row) {   // 전송 실패분을 로컬에 쌓아 나중에 재전송(유실 방지)
-  try { const q = JSON.parse(localStorage.getItem(_QKEY) || '[]'); q.push({ table, row }); localStorage.setItem(_QKEY, JSON.stringify(q.slice(-300))); } catch (e) {}
+  // 상한을 넉넉히(2000) — 한 기기로 다세션 시연 중 Supabase 가 장시간 막혀도 초기 응답이 잘려나가지 않게.
+  try { const q = JSON.parse(localStorage.getItem(_QKEY) || '[]'); q.push({ table, row }); localStorage.setItem(_QKEY, JSON.stringify(q.slice(-2000))); } catch (e) {}
 }
 export async function restInsert(table, row) {
   if (!HAS_SUPABASE) return false;
+  // keepalive:true → 탭 종료·화면 이동 중에도 전송이 끝까지 완주(설문/리드 유실 방지).
+  // AbortController 타임아웃 → 느리거나 막힌 망에서 UI 가 무한 대기하지 않고, 실패는 로컬 큐로 떨어져 나중에 재전송된다.
+  const ctrl = typeof AbortController !== 'undefined' ? new AbortController() : null;
+  const timer = ctrl ? setTimeout(() => { try { ctrl.abort(); } catch (e) {} }, 8000) : null;
   try {
-    const res = await fetch(`${cfg.SUPABASE_URL}/rest/v1/${table}`, { method: 'POST', headers: _restHeaders(), body: JSON.stringify(row) });
+    const res = await fetch(`${cfg.SUPABASE_URL}/rest/v1/${table}`, { method: 'POST', headers: _restHeaders(), body: JSON.stringify(row), keepalive: true, signal: ctrl ? ctrl.signal : undefined });
     if (res.ok) return true;
     _queue(table, row); return false;
   } catch (e) { _queue(table, row); return false; }
+  finally { if (timer) clearTimeout(timer); }
 }
 /* 앱 시작 시 1회 호출 — 지난번 실패로 큐에 남은 응답을 재전송(발표장 네트워크 깜빡임 대비). */
 export async function flushCollectQueue() {
@@ -71,7 +77,7 @@ export async function flushCollectQueue() {
   if (!q.length) return;
   const remain = [];
   for (const it of q) {
-    try { const res = await fetch(`${cfg.SUPABASE_URL}/rest/v1/${it.table}`, { method: 'POST', headers: _restHeaders(), body: JSON.stringify(it.row) }); if (!res.ok) remain.push(it); }
+    try { const res = await fetch(`${cfg.SUPABASE_URL}/rest/v1/${it.table}`, { method: 'POST', headers: _restHeaders(), body: JSON.stringify(it.row), keepalive: true }); if (!res.ok) remain.push(it); }
     catch (e) { remain.push(it); }
   }
   try { localStorage.setItem(_QKEY, JSON.stringify(remain)); } catch (e) {}

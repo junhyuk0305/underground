@@ -444,6 +444,10 @@ const mockDb = {
     if (!s.session) throw new Error('로그인이 필요해요.');
     const rid = s.profile?.region_id;
     if (!rid) throw new Error('먼저 거주 지역을 인증해 주세요.');
+    // 스타일라이즈드 폴백용 mx/my + 실 카카오 지도용 lat/lng(지역 중심 근처, regionStimulus 와 동일 공식).
+    // lat/lng 를 null 로 두면 카카오 지도 성공 렌더 시 이 매장만 핀이 사라진다 → 지역 중심 좌표로 채운다.
+    const region = s.regions.find(r => r.id === rid);
+    const mx = 20 + Math.floor(Math.random() * 60), my = 24 + Math.floor(Math.random() * 52);
     const v = {
       id: uid(), region_id: rid, owner_id: s.session.id,
       name: payload.name, address: payload.address || '', category: payload.category || '',
@@ -451,7 +455,9 @@ const mockDb = {
       idle_start: payload.idle_start || '', idle_end: payload.idle_end || '', slot_minutes: +payload.slot_minutes || 120,
       images: [], facilities: payload.facilities || [], program_candidates: payload.program_candidates || [],
       min_share_pct: +payload.min_share_pct || 45, house_rules: payload.house_rules || '',
-      mx: 20 + Math.floor(Math.random() * 60), my: 24 + Math.floor(Math.random() * 52), lat: null, lng: null,
+      mx, my,
+      lat: region && region.lat != null ? region.lat + (50 - my) / 2500 : null,
+      lng: region && region.lng != null ? region.lng + (mx - 50) / 2000 : null,
     };
     s.venues.unshift(v);
     s.profile.is_venue_owner = true;

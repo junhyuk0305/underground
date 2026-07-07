@@ -549,7 +549,7 @@ async function screenVenue(id){
       if(getStudy()){   // 검증 모드: 크레딧 차감 + 이유 수집 + 로깅
         if(!canAfford(m.fee)){ logEvent('abandon',{kind:'meetup',target:m.id,category:m.category,price:m.fee,reason:'budget'}); return toast('크레딧이 부족해요. 무엇을 포기할지 골라보세요.','err'); }
         return studySpendModal({ title:'이 모임에 크레딧 쓰기', sub:`참가비 ${won(m.fee)} · 매장 분배 ${m.venue_share_pct}%`, price:m.fee, reasons:REASON_MEETUP, confirmText:'신청하고 담기',
-          onConfirm:async(reasons)=>{ try{ await db.joinMeetup(m.id); charge(m.fee); await logEvent('spend',{kind:'meetup',target:m.id,title:m.title,category:m.category,track:m.track,price:m.fee,time_band:m.time_band,reasons}); state.lastJoin={venue:v,meetup:m}; refreshWallet(); afterFirstSpend(m, ()=>go('#/joined')); }catch(e){ toast(e.message,'err'); } } });
+          onConfirm:async(reasons)=>{ try{ await db.joinMeetup(m.id); charge(m.fee); logEvent('spend',{kind:'meetup',target:m.id,title:m.title,category:m.category,track:m.track,price:m.fee,time_band:m.time_band,reasons}); state.lastJoin={venue:v,meetup:m}; refreshWallet(); afterFirstSpend(m, ()=>go('#/joined')); }catch(e){ toast(e.message,'err'); } } });
       }
       pilotPayModal({
         title:'이 모임 신청',
@@ -725,7 +725,7 @@ async function screenMy(){
 }
 async function screenMe(){
   renderAppbar({title:'나', brand:false});
-  if(state.ownerMode) renderOwnerTabbar('me'); else renderTabbar('me');
+  if(state.ownerMode || getStudy()?.role==='owner') renderOwnerTabbar('me'); else renderTabbar('me');
   setAdsVisible(true);
   const p=state.profile;
   let passes=[]; try{ passes=await db.getMyPasses(); }catch(e){}
@@ -828,7 +828,7 @@ async function screenPasses(){
       const price=prod?.price||0;
       if(!canAfford(price)){ logEvent('abandon',{kind:'pass',target:pickRegion,price,reason:'budget'}); return toast('크레딧이 부족해요. 무엇을 포기할지 골라보세요.','err'); }
       return studySpendModal({ title:'지역 이용권에 크레딧 쓰기', sub:`${regionName(pickRegion)} 언더그라운드 · ${prod?.label||''}`, price, reasons:REASON_PASS, confirmText:'이용권 받고 담기',
-        onConfirm:async(reasons)=>{ try{ await db.buyPass({regionId:pickRegion, productKey:pick}); charge(price); await logEvent('spend',{kind:'pass',target:pickRegion,title:regionName(pickRegion)+' 이용권',category:prod?.label,price,reasons}); state.viewable=[]; state.viewRegion=pickRegion; refreshWallet(); toast(`${regionName(pickRegion)} 언더그라운드가 열렸어요.`,'ok'); go('#/map'); }catch(e){ toast(e.message,'err'); } } });
+        onConfirm:async(reasons)=>{ try{ await db.buyPass({regionId:pickRegion, productKey:pick}); charge(price); logEvent('spend',{kind:'pass',target:pickRegion,title:regionName(pickRegion)+' 이용권',category:prod?.label,price,reasons}); state.viewable=[]; state.viewRegion=pickRegion; refreshWallet(); toast(`${regionName(pickRegion)} 언더그라운드가 열렸어요.`,'ok'); go('#/map'); }catch(e){ toast(e.message,'err'); } } });
     }
     pilotPayModal({
       title:'지역 이용권 받기',
@@ -1810,7 +1810,7 @@ async function screenAdmin(){
   const sessions = mergeSessions([...remote, ...adminImported, ...local]);
   const m = computeMetrics(sessions);
   const srcCounts = { local:local.length, import:adminImported.length, remote:remote.length };
-  const body=document.getElementById('adm');
+  const body=document.getElementById('adm'); if(!body) return;   // await(원격조회) 사이 화면 이탈 시 널 방지
   if(!m.N && !m.supply.demoN){
     body.innerHTML=`<div class="empty"><div class="ic">📊</div>아직 집계할 응답이 없어요.<br>테스터가 <b>결과 화면에서 내보낸 JSON</b>을 아래로 불러오세요.
       <div style="margin-top:16px"><button class="btn btn--md btn--primary" id="imp">응답 JSON 불러오기</button></div></div>
@@ -1983,10 +1983,13 @@ async function route(){
     if(!state.session) return go('#/study');
     if(!state.profile?.resident_verified) return go('#/study');
   }
-  // 사장(공급) 세션은 참여자 기능(이용권)에 접근하지 않는다 → 사장님 홈으로 되돌림
-  if(path==='passes' && (getStudy()?.role==='owner' || (state.ownerMode && STUDY_ROLE==='owner'))) return go('#/owner-home');
-  // 모드 동기화: 참여자 탭 진입 시 사장님 모드 해제(공유 화면 'me' 는 유지)
+  // 사장(공급) 세션은 참여자 전용 화면에 접근하지 않는다 → 사장님 홈으로 되돌림(역할 누수 방지).
+  // '나(me)'는 공유 화면이라 예외. 여기서 안 막으면 오너가 '나'에서 새로고침→참여자 탭바→지도 탭으로 새어나간다.
+  if((getStudy()?.role==='owner' || (state.ownerMode && STUDY_ROLE==='owner'))
+      && ['map','my','passes','venue','host-apply','host-browse','joined'].includes(path)) return go('#/owner-home');
+  // 모드 동기화: 참여자 탭 진입 시 사장님 모드 해제. 공유 화면 'me'는 오너 세션이면 사장님 모드로 유지(새로고침·직접진입 대비).
   if(OWNER_ROUTES.includes(path)){ state.ownerMode=true; setTimeout(refreshOwnerBar,0); }
+  else if(path==='me' && (getStudy()?.role==='owner' || (state.ownerMode && STUDY_ROLE==='owner'))){ state.ownerMode=true; setTimeout(refreshOwnerBar,0); }
   else if(['map','my','passes','venue','host-apply','host-browse'].includes(path)) state.ownerMode=false;
   // 사장님 메인 탭(홈·요청·정산) + 오너 모드의 '나'에서만 '사용 설문 참여' FAB 노출.
   // 하단 고정 버튼(cta-dock)이 있는 화면(클로징·매장등록/수정)은 겹침 방지로 제외.
