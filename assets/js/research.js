@@ -3,7 +3,10 @@
  * config.js(Supabase) 연결 시 study_events 테이블에도 적재, 없으면 localStorage.
  * 설계: docs/08_검증설계_MVP.md
  */
-import { collector, kstISO } from './supabase.js';
+import { restInsert, CAN_COLLECT, flushCollectQueue, kstISO } from './supabase.js';
+
+// 앱 로드 시, 지난번 전송 실패로 로컬 큐에 남은 응답을 재전송(유실 방지).
+flushCollectQueue();
 
 // 앱=테스트(검증) 서비스 하나. 모든 진입자는 항상 검증 모드로 동작한다.
 // (기존 ?study=0 "검증 끄기" 분기 제거 — 실서비스/테스트 구분 없음)
@@ -57,13 +60,12 @@ export function startStudy(personaKey, respondent={}){
                   nickname:respondent.nickname||null, regionId:home, consentAt:kstISO() },
     budget:STUDY_BUDGET, spent:0, events:[], startedAt:kstISO(), ended:false };
   save(s);
-  // 응답자 기본정보 1행 적재(익명) — 자극이 mock 이어도 collector 로 실제 Supabase 에 남긴다.
-  if(collector){
-    // supabase-js 쿼리는 lazy — .then() 을 붙여야 실제 전송된다. 실패는 조용히 무시(데모 흐름 우선).
-    collector.from('respondents').insert({
+  // 응답자 기본정보 1행 적재(익명) — 자극이 mock 이어도 REST(fetch)로 실제 Supabase 에 남긴다.
+  if(CAN_COLLECT){
+    restInsert('respondents', {
       tester:s.tester, persona:personaKey, region_id:home,
       age_range:s.respondent.ageRange, gender:s.respondent.gender, nickname:s.respondent.nickname,
-      role:'participant', ctx:STUDY_CTX, consent:true, created_at:s.startedAt }).then(null, ()=>{});
+      role:'participant', ctx:STUDY_CTX, consent:true, created_at:s.startedAt });
   }
   logEvent('study_start', { budget:STUDY_BUDGET, ageRange:s.respondent.ageRange, gender:s.respondent.gender, region:home });
   return s;
@@ -84,11 +86,11 @@ export function saveOwnerIntake(intake={}){
   if(!s || s.role!=='owner') s=startOwnerStudy();
   s.ownerIntake = { ...intake, at:kstISO() };
   save(s);
-  if(collector){
-    collector.from('respondents').insert({
+  if(CAN_COLLECT){
+    restInsert('respondents', {
       tester:s.tester, persona:null, region_id:intake.regionId||null,
       age_range:intake.ageRange||null, gender:intake.gender||null, nickname:intake.nickname||null,
-      role:'owner', ctx:STUDY_CTX, consent:!!intake.consent, created_at:s.ownerIntake.at }).then(null, ()=>{});
+      role:'owner', ctx:STUDY_CTX, consent:!!intake.consent, created_at:s.ownerIntake.at });
   }
   logEvent('owner_intake', {
     ageRange:intake.ageRange||null, gender:intake.gender||null, store_name:intake.storeName||null,
@@ -104,13 +106,13 @@ export function getOwnerIntake(){ const s=load(); return (s&&s.role==='owner')?s
  * 집계용 이벤트(lead_capture/owner_lead)는 호출부에서 별도로 남긴다(여긴 실제 연락 저장). */
 export function saveWaitlist(payload={}){
   const s=load();
-  if(!collector) return false;
-  collector.from('waitlist').insert({
+  if(!CAN_COLLECT) return false;
+  restInsert('waitlist', {
     tester:s?.tester||null, role:s?.role||STUDY_ROLE,
     channel:payload.channel||null, contact:payload.contact||null, region_id:payload.regionId||null,
     interests:payload.interests||[], topics:payload.topics||[], time_pref:payload.timePref||null,
     note:payload.note||null, ctx:(s&&'ctx' in s)?s.ctx:STUDY_CTX, created_at:kstISO()
-  }).then(null, ()=>{});
+  });
   return true;
 }
 export function resetStudy(){ try{ localStorage.removeItem(SKEY); }catch(e){} }
@@ -129,9 +131,8 @@ export async function logEvent(type, payload={}){
   const ev = { id:'e_'+rid(), type, payload, at:kstISO(),
     tester:s?.tester||null, persona:s?.persona||null, role, ctx };
   if(s){ (s.events = s.events||[]).push(ev); save(s); }
-  if(collector){   // 자극이 mock 이어도 설문 이벤트는 실제 Supabase 로 적재
-    try{ await collector.from('study_events').insert({ tester:ev.tester, persona:ev.persona, role, ctx, type, payload, created_at:ev.at }); }
-    catch(e){ /* 수집 실패는 조용히 무시(데모 흐름 우선) */ }
+  if(CAN_COLLECT){   // 자극이 mock 이어도 설문 이벤트는 REST(fetch)로 실제 Supabase 에 적재(실패 시 로컬 큐→재전송)
+    await restInsert('study_events', { tester:ev.tester, persona:ev.persona, role, ctx, type, payload, created_at:ev.at });
   }
   return ev;
 }
