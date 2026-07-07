@@ -19,11 +19,12 @@ export const STUDY_BUDGET = 30000;
 
 /* 페르소나 = 두 수익 라인 검증 */
 export const PERSONAS = [
-  { key:'local', label:'지방에 사는 청년', emoji:'🏡',
-    desc:'수원에 살아요. 퇴근하고 우리 동네에서 뭔가 해보고 싶어요.',
+  // desc 는 UI(app.js personaDesc)에서 응답자가 고른 내 동네로 리스킨된다(여기 문구는 폴백).
+  { key:'local', label:'지방에 사는 청년', short:'우리 동네 위주', emoji:'🏡',
+    desc:'내 동네에서 퇴근하고 뭔가 해보고 싶어요.',
     home:'r_suwon', frame:'local', nick:'로컬 청년' },
-  { key:'mover', label:'서울 ↔ 지방 오가는 청년', emoji:'🚄',
-    desc:'수원에 살지만 서울(마포·강남)도 자주 가요. 거기 모임도 궁금해요.',
+  { key:'mover', label:'서울 ↔ 지방 오가는 청년', short:'서울도 오가요', emoji:'🚄',
+    desc:'내 동네 말고 서울(마포·강남) 모임도 궁금해요.',
     home:'r_suwon', frame:'mover', nick:'오가는 청년', highlight:['r_seoul-mapo','r_seoul-gangnam'] },
 ];
 export const personaByKey = (k) => PERSONAS.find(p => p.key === k) || null;

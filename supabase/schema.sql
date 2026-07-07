@@ -298,6 +298,9 @@ alter table public.study_events enable row level security;
 -- 익명 테스터도 계측을 남겨야 하므로 anon/authenticated 에게 insert 허용(읽기는 팀 대시보드/서비스롤).
 drop policy if exists study_insert_any on public.study_events;
 create policy study_insert_any on public.study_events for insert to anon, authenticated with check (true);
+-- admin123(공개 anon 키) 집계용 읽기 허용. 익명 데이터라 공개 읽기 허용 범위(2026-07-07, 2026-07-07_admin_read.sql).
+drop policy if exists study_read_any on public.study_events;
+create policy study_read_any on public.study_events for select to anon, authenticated using (true);
 create index if not exists idx_study_ctx on public.study_events(ctx, type, created_at);
 
 -- ─────────────────────────────────────────────
@@ -323,6 +326,9 @@ alter table public.respondents enable row level security;
 -- 익명 응답자도 남겨야 하므로 anon/authenticated insert 허용(읽기는 팀 대시보드/서비스롤).
 drop policy if exists respondents_insert_any on public.respondents;
 create policy respondents_insert_any on public.respondents for insert to anon, authenticated with check (true);
+-- admin123 집계용 읽기 허용(익명 인구통계·연락처 없음). 공개 읽기 허용 범위(2026-07-07).
+drop policy if exists respondents_read_any on public.respondents;
+create policy respondents_read_any on public.respondents for select to anon, authenticated using (true);
 create index if not exists idx_respondents_ctx on public.respondents(ctx, created_at);
 
 -- ─────────────────────────────────────────────
@@ -350,4 +356,5 @@ create table if not exists public.waitlist (
 alter table public.waitlist enable row level security;
 drop policy if exists waitlist_insert_any on public.waitlist;
 create policy waitlist_insert_any on public.waitlist for insert to anon, authenticated with check (true);
+-- ⚠ waitlist 은 실연락처(PII) 보관 → SELECT 정책을 두지 않는다(공개 읽기 금지). 조회는 대시보드/서비스롤만.
 create index if not exists idx_waitlist_role on public.waitlist(role, region_id, created_at);

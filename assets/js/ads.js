@@ -106,22 +106,46 @@ const LEFT = [
   { key: 'split', inner: splitInner },
 ];
 const LEFT_PERIOD = 12000;   // 한 배너당 노출 시간(설명이라 넉넉히). 오른쪽(8s)과 desync.
+const LEFT_HOLD = 22000;     // 사용자가 점을 눌러 고른 슬라이드를 유지하는 시간(그 뒤 자동 재개).
+
+// 왼쪽 캐러셀: 점(dot) 클릭으로 원하는 슬라이드로 이동. 누르면 잠시 자동 넘김을 멈춘다.
+let leftManualIdx = null;
+let leftManualAt = 0;
 
 function leftHTML(idx) {
-  const dots = LEFT.map((_, k) => `<span class="${k === idx ? 'on' : ''}"></span>`).join('');
+  const dots = LEFT.map((_, k) => `<button type="button" class="${k === idx ? 'on' : ''}" data-k="${k}" aria-label="${k + 1}번째 설명 보기" aria-current="${k === idx}"></button>`).join('');
   return `<div class="rel-banner" role="complementary" aria-label="서비스 설명">
     ${LEFT[idx].inner()}
-    <div class="exp-dots" aria-hidden="true">${dots}</div>
+    <div class="exp-dots">${dots}</div>
   </div>`;
 }
 
+// leftHTML 을 그리고 점 클릭 핸들러를 다시 연결한다(innerHTML 교체 때마다 호출).
+function paintLeft(left, idx) {
+  left.innerHTML = leftHTML(idx);
+  left.dataset.idx = String(idx);
+  left.querySelectorAll('.exp-dots button').forEach(b => {
+    b.onclick = () => {
+      const k = +b.dataset.k;
+      leftManualIdx = k; leftManualAt = Date.now();
+      paintLeft(left, k);
+    };
+  });
+}
+
 function houseHTML(item) {
+  const rest = HOUSE.filter(h => h !== item);
   return `
     <div class="ad-slot" role="complementary" aria-label="안내 배너">
-      <div class="ad-slot__tag">${item.tag}</div>
-      <div class="ad-slot__emo">${item.emoji}</div>
-      <div class="ad-slot__title">${item.title.replace(/\n/g, '<br>')}</div>
-      <div class="ad-slot__desc">${item.desc}</div>
+      <div class="ad-slot__head">
+        <div class="ad-slot__tag">${item.tag}</div>
+        <div class="ad-slot__emo">${item.emoji}</div>
+        <div class="ad-slot__title">${item.title.replace(/\n/g, '<br>')}</div>
+        <div class="ad-slot__desc">${item.desc}</div>
+      </div>
+      <div class="ad-slot__more">
+        ${rest.map(h => `<div class="ad-slot__mini"><span class="ad-slot__mini-emo">${h.emoji}</span><span class="ad-slot__mini-tx"><b>${h.tag}</b>${h.desc}</span></div>`).join('')}
+      </div>
       <div class="ad-slot__cta">${item.cta}</div>
     </div>`;
 }
@@ -130,8 +154,9 @@ export function renderAds() {
   const left = document.querySelector('#adLeft .ad-rail__inner');
   const right = document.querySelector('#adRight .ad-rail__inner');
   if (left) {
-    const li = Math.floor(Date.now() / LEFT_PERIOD) % LEFT.length;
-    if (left.dataset.idx !== String(li)) { left.innerHTML = leftHTML(li); left.dataset.idx = String(li); }
+    const manual = leftManualIdx != null && (Date.now() - leftManualAt) < LEFT_HOLD;
+    const li = manual ? leftManualIdx : (leftManualIdx = null, Math.floor(Date.now() / LEFT_PERIOD) % LEFT.length);
+    if (left.dataset.idx !== String(li)) paintLeft(left, li);
   }
   if (right) {
     const i = Math.floor((Date.now() / 8000)) % HOUSE.length;

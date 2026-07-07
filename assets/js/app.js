@@ -26,6 +26,17 @@ function fmtDate(iso){const d=new Date(iso);const days=['일','월','화','수',
 function fmtShort(iso){const d=new Date(iso);const days=['일','월','화','수','목','금','토'];return `${d.getMonth()+1}/${d.getDate()}(${days[d.getDay()]}) ${d.getHours()}시`;}
 const regionName = id => state.regions.find(r=>r.id===id)?.name || '';
 const homeRegion = () => state.profile?.region_id || null;
+/* 페르소나 예시 문구는 '수원' 고정이 아니라 응답자가 고른 내 동네로 리스킨한다.
+ * 지역 미선택 시엔 동네를 특정하지 않는 문구로 대체. */
+function personaDesc(p, regionId){
+  const home = regionId ? regionName(regionId) : '';
+  if(p.key==='mover') return home
+    ? `${home}에 살지만 서울(마포·강남)도 자주 가요. 거기 모임도 궁금해요.`
+    : `내 동네 말고 서울(마포·강남) 모임도 궁금해요.`;
+  return home
+    ? `${home}에 살아요. 퇴근하고 우리 동네에서 뭔가 해보고 싶어요.`
+    : `내 동네에서 퇴근하고 뭔가 해보고 싶어요.`;
+}
 const isVisitor = () => state.viewRegion && state.viewRegion !== homeRegion();
 const go = h => { window.location.hash = h; };
 
@@ -119,6 +130,7 @@ function openRegionPicker({ selected, title='지역 선택', onPick }){
     <div class="modal__sheet" role="dialog" aria-modal="true" aria-label="${esc(title)}">
       <div class="modal__grip"></div>
       <div class="modal__title">${esc(title)}</div>
+      <p class="hint" style="margin:-6px 20px 10px;line-height:1.5">처음엔 <b>시 단위</b>로 지도가 열려요. (서울만 구 단위 — 예: 마포구)</p>
       <div class="rp-search"><input class="input" id="rpq" placeholder="동네 이름 검색 (예: 마포)" autocomplete="off" inputmode="search"></div>
       <div class="rp-scroll" id="rplist">${listHtml()}</div></div>`;
   document.body.appendChild(wrap);
@@ -147,9 +159,17 @@ function renderAppbar(cfg){
     ${cfg.back?`<button class="appbar__back" data-back aria-label="뒤로">←</button>`:''}
     <div class="appbar__title">${cfg.brand?ICON.keypin:''}${esc(cfg.title)}</div>
     <div class="appbar__spacer"></div>
+    ${cfg.roleToggle?`<div class="role-toggle" role="tablist" aria-label="참여자·호스트 전환">
+        <button data-rt="participant" role="tab" aria-selected="${cfg.roleToggle==='participant'}">참여자</button>
+        <button data-rt="host" role="tab" aria-selected="${cfg.roleToggle==='host'}">호스트</button>
+      </div>`:''}
     ${cfg.city?`<span class="appbar__city" data-city>📍 ${esc(cfg.city)} ▾</span>`:''}`;
   const b=$appbar.querySelector('[data-back]'); if(b) b.onclick=cfg.onBack||(()=>history.back());
   const c=$appbar.querySelector('[data-city]'); if(c) c.onclick=()=>go('#/passes');
+  $appbar.querySelectorAll('[data-rt]').forEach(el=>el.onclick=()=>{
+    if(el.dataset.rt===cfg.roleToggle) return;   // 이미 그 모드면 무시
+    go(el.dataset.rt==='host' ? '#/host-browse' : '#/map');
+  });
 }
 function renderTabbar(active){
   if(!active){ $tabbar.className='tabbar hidden'; $tabbar.innerHTML=''; return; }
@@ -189,18 +209,56 @@ function screenSplash(){
   el.onclick=skip;
 }
 function nextFromSession(){
-  // 공급(오너) 데모: ?role=owner → 스플래시 → 사장님 인테이크 → 사장님 센터 (docs/08 §2)
+  // 공급(오너) 데모: ?role=owner → 스플래시 → 사장님 센터(매장·요청 이미 세팅됨) (docs/08 §2)
+  // 처음에 계정을 '사장님'으로 고르면 바로 '이미 매장이 등록된' 상태로 들어간다(수동 등록 스킵).
   if(RESEARCH_ON && STUDY_ROLE==='owner'){
-    if(state.session && state.profile?.is_venue_owner){ state.ownerMode=true; return go('#/owner-home'); }
-    if(!getOwnerIntake()) return go('#/owner-intake');   // 데모 전 '이 사장이 누구인가' 회수(B)
-    return beginOwnerDemo(getOwnerIntake());
+    return beginOwnerDemo(getOwnerIntake()||{});
   }
-  // 검증(연구) 모드: 세션/거주인증 전이면 페르소나 선택으로 진입
-  if(RESEARCH_ON && !getStudy() && !state.profile?.resident_verified) return go('#/study');
+  // 검증(연구) 모드: 세션/거주인증 전이면 인테이크(#/study)로 — 역할(참여자/사장) 선택도 이 화면에서 바로 한다
+  if(RESEARCH_ON && !getStudy() && !state.profile?.resident_verified){
+    return go('#/study');
+  }
   if(!state.session) return go('#/signup');
   if(!state.profile?.resident_verified) return go('#/signup');
   go('#/map');
 }
+/* 계정 선택 — 어떤 계정으로 테스트할지 고르는 큰 카드(참여자 / 사장님).
+ * 사장은 ?role=owner 로 재진입(STUDY_ROLE 반영), 참여자는 그대로 인테이크(#/study)로. */
+function screenPick(){
+  renderAppbar(null); renderTabbar(null); setAdsVisible(false);
+  const mb=document.getElementById('modebar'); if(mb) mb.style.display='none';
+  let sel='';
+  scrRaw(`<div class="gate"><div class="gate__inner" style="justify-content:center">
+    <div class="gate__mark" style="margin:0 auto 8px">${ICON.keypin}</div>
+    <h1 style="text-align:center">어떤 걸로<br>둘러볼까요?</h1>
+    <p style="text-align:center">테스트할 계정을 골라 주세요.</p>
+    <div class="role-pick">
+      <button type="button" class="card role-card" data-role="participant">
+        <div class="rc-emo">🧭</div><div class="rc-t">참여자</div>
+        <div class="rc-s">우리 동네 지도와<br>모임을 둘러봐요</div></button>
+      <button type="button" class="card role-card" data-role="owner">
+        <div class="rc-emo">🏪</div><div class="rc-t">사장님</div>
+        <div class="rc-s">가게 유휴 시간을<br>열고 관리해요</div></button>
+    </div>
+    <div class="gate__cta" style="margin-top:20px;max-width:340px">
+      <button class="btn btn--lg btn--primary btn--block" id="pgo" disabled>시작하기</button></div>
+  </div></div>`);
+  const scope=$screen, goBtn=scope.querySelector('#pgo');
+  scope.querySelectorAll('[data-role]').forEach(el=>el.onclick=()=>{
+    sel=el.dataset.role;
+    scope.querySelectorAll('[data-role]').forEach(x=>x.classList.toggle('is-sel', x.dataset.role===sel));
+    goBtn.disabled=false;
+  });
+  goBtn.onclick=()=>{
+    if(!sel) return;
+    const u=new URL(window.location.href); u.searchParams.set('role', sel);
+    if(sel==='owner'){ u.hash='#/splash'; return window.location.replace(u.toString()); }
+    // 참여자는 리로드 없이: role 파라미터만 URL 에 반영하고 인테이크로
+    window.history.replaceState({}, '', u.pathname+u.search+'#/study');
+    go('#/study');
+  };
+}
+
 /* 공급(오너) 데모 부트스트랩 — 참여자 실험처럼 mock(동일 자극·무마찰)에서 돈다.
  * 세션·거주인증·데모 매장을 준비해 사장님 센터(screenOwnerHome)로 직행하고 owner_demo_start 를 남긴다. */
 async function beginOwnerDemo(intake={}){
@@ -213,16 +271,9 @@ async function beginOwnerDemo(intake={}){
     await db.signIn('owner_demo@local');
     await db.verifyResident({ regionId:region, displayName:'데모 사장님', interests:[], bio:'', isHost:false });
     await boot();
-    const mine = await db.myVenues();
-    if(!mine.length){   // 사장님이 입력한 가게 조건으로 데모 매장 1곳 등록 → 요청함·정산·맞춤소개서가 '내 가게' 기준으로 살아난다
-      const cat = intake.category || '책방';
-      const BAND_TIME = { '오전(개점 전)':['09:00','11:00'], '점심 후 오후(데드타임)':['14:00','16:00'], '늦은 오후':['16:00','18:00'], '저녁':['19:00','21:00'], '밤':['21:00','23:00'] };
-      const [is,ie] = BAND_TIME[intake.idleBand] || ['15:00','17:00'];
-      await db.registerVenue({ name: intake.venueName || (regionName(region)+' 우리 가게'), category:cat, address:(regionName(region)+' 일대'),
-        capacity:+intake.capacity||10, idle_days:intake.idleDays||'평일', idle_start:is, idle_end:ie, slot_minutes:120, min_share_pct:30,
-        facilities:OWNER_FACILITY_HINT[cat]||['테이블·좌석','와이파이'], program_candidates:OWNER_PROGRAM_HINT[cat]||['소모임','원데이 클래스'], house_rules:'' });
-      await boot();
-    }
+    // 기본 데모 매장 1곳(+개설 요청·진행중·정산) 보장 → 요청함·정산·홈이 처음부터 살아있다
+    await db.ensureOwnerVenue();
+    await boot();
     state.ownerMode=true;
     logEvent('owner_demo_start', { ctx: STUDY_CTX });
     go('#/owner-home');
@@ -283,7 +334,7 @@ function renderSignupStep(){
   }
   if(su.step===3){ // 지역·거주
     fscr(`${stepDots(3,4)}<h1 class="dtitle">어느 동네에 사세요?</h1>
-      <p class="hint" style="margin-bottom:16px">서울은 구, 그 외 지역은 시 단위로 열려요.</p>
+      <p class="hint" style="margin-bottom:16px">처음엔 시 단위로 지도가 열려요. (서울만 구 단위 — 예: 마포구)</p>
       <div class="field"><label>거주 지역</label>${regionTrigger('region', su.regionId)}</div>
       <label class="check"><input type="checkbox" id="agree" ${su.agree?'checked':''}><span class="box">${ICON.check}</span><span>네, <b>이 지역에 살고 있어요</b></span></label>
       <div class="hl"><span>${ICON.pin}</span><div class="t">지금은 <b>자기신고</b>로 열어드려요. 신분증·주소 인증은 곧 추가돼요.</div></div>`,
@@ -357,7 +408,7 @@ function runOnboarding(done){
 async function screenMap(){
   const rid = state.viewRegion || homeRegion();
   state.viewRegion = rid;
-  renderAppbar({title:'언더그라운드맵', brand:true, city:regionName(rid)}); renderTabbar('map'); setAdsVisible(true);
+  renderAppbar({title:'언더그라운드맵', brand:true, roleToggle:'participant'}); renderTabbar('map'); setAdsVisible(true);
   scrRaw(`<div class="mapfull"><div class="mapfull__map" id="kmap"></div><div class="empty" style="margin:auto">불러오는 중…</div></div>`);
   try{ if(!state.viewable.length) state.viewable = await db.viewableRegions(); }catch(e){}
   let venues=[]; try{ venues = await db.listVenues(rid); }catch(e){ toast(e.message,'err'); }
@@ -368,6 +419,7 @@ async function screenMap(){
   const f=state.mapFilter;
   const filtered = venues.filter(v=> f==='all'?true : f==='live'?v.live : !v.live);
   const liveN = venues.filter(v=>v.live).length;
+  const dimN = venues.filter(v=>!v.live).length;
   const stylizedPins = () => venues.filter(v=>v.mx!=null).map(v=>`<button class="mpin ${v.live?'mpin--live':'mpin--dim'}" style="left:${v.mx}%;top:${v.my}%" data-v="${v.id}"><span class="mpin__dot"></span><span class="mpin__label">${esc(v.name)}</span></button>`).join('');
   // 지도 우선: 풀스크린 지도 + 플로팅 컨트롤 + 드래그 바텀시트
   $screen.innerHTML = `
@@ -376,7 +428,8 @@ async function screenMap(){
       <div class="map-float">
         <div class="regionbar drag-x">${chips}</div>
         ${visitor}
-        <div class="map-legend"><span><i style="background:var(--brand);box-shadow:0 0 8px rgba(255,78,0,.85)"></i>진행중 ${liveN}</span><span><i style="background:#5a5a5a"></i>빈 공간</span></div>
+        <div class="map-legend"><span><i style="background:var(--brand);box-shadow:0 0 8px rgba(255,78,0,.85)"></i>진행중 ${liveN}</span><span><i class="lg-dim"></i>빈 공간 ${dimN}</span></div>
+        ${isVisitor()?'':`<button class="hostcta" id="mapHost"><span class="hostcta__k">${ICON.keypin}</span><span>빈 공간에 <b>내 모임 열기</b> · 호스트 되기</span><span class="chev">›</span></button>`}
       </div>
       <div class="mapsheet" id="sheet">
         <div class="mapsheet__head" id="sheetHead">
@@ -392,6 +445,7 @@ async function screenMap(){
   bindVenueTaps();
   scope.querySelectorAll('[data-r]').forEach(el=>el.onclick=()=>{ state.viewRegion=el.dataset.r; screenMap(); });
   scope.querySelector('[data-add]').onclick=()=>go('#/passes');
+  const mapHost=scope.querySelector('#mapHost'); if(mapHost) mapHost.onclick=()=>go('#/host-browse');
   // 필터는 리스트만 교체(시트 재마운트 X) → 매번 슬라이드 애니메이션 재생되던 문제 해결
   const applyFilter=(nf)=>{
     state.mapFilter=nf;
@@ -441,10 +495,11 @@ function venueCard(v){
       <div class="venue">${ICON.pin}${esc(v.name)} · ${esc(m.category||'')}</div>
       <div class="foot"><div class="fee">${won(m.fee)}<small>매장 분배 ${m.venue_share_pct}%</small></div><div class="cap-ind"><span class="txt">${fmtShort(m.starts_at)}</span></div></div></div>`;
   }
+  const last=(v.past_programs||[])[0];
   return `<div class="mcard mcard--tap" data-v="${v.id}">
-    <div class="top"><div class="mt">${esc(v.name)}</div><span class="badge badge--closed">공간만</span></div>
+    <div class="top"><div class="mt">${esc(v.name)}</div><span class="badge badge--closed">빈 공간</span></div>
     <div class="venue">${ICON.store}${esc(v.category||'')} · 유휴 ${esc(v.idle_start||'')}~${esc(v.idle_end||'')}</div>
-    <div class="hint">아직 열린 프로그램이 없어요 · 호스트가 되어 열 수 있어요</div></div>`;
+    <div class="hint">${last?`지난 프로그램 · ${esc(last.title)}${last.ago?` (${esc(last.ago)})`:''}`:'지금은 비어 있어요'} · 호스트가 되어 열 수 있어요</div></div>`;
 }
 
 /* 매장 히어로: 실사진 있으면 사진, 없으면 카테고리별 다크 그라디언트+글리프 생성 */
@@ -478,6 +533,8 @@ async function screenVenue(id){
   const facilities = `<div class="sectitle">이 공간이 갖춘 것</div><div class="facilities">${(v.facilities||[]).map(f=>`<span class="chip chip--tag">${esc(f)}</span>`).join('')||'<span class="hint">등록된 시설 정보가 없어요.</span>'}</div>`;
 
   if(v.live){ const m=v.meetup, full=m.joined>=m.capacity;
+    // 클릭해서 열어본 모임 = 관심 신호(view). 결제·찜 전 단계의 관심을 프로그램별로 잡는다.
+    if(getStudy()) logEvent('meetup_view',{ target:m.id, category:m.category, track:m.track, fee:m.fee, time_band:m.time_band });
     scrRaw(`<div class="screen__pad" style="padding-bottom:100px">
       ${hero}${vbanner}
       <div class="mcard" style="cursor:default">
@@ -491,6 +548,7 @@ async function screenVenue(id){
       ${facilities}
       <div class="sectitle">이 모임을 여는 사람</div>
       <div class="card" style="cursor:default"><div class="mt" style="font-size:15px">${esc(v.host?.name||m.host_name||'호스트')}</div><p class="hint" style="margin:6px 0">${esc(v.host?.bio||'')}</p><div class="chips">${(v.host?.interests||[]).map(i=>`<span class="chip chip--tag">${esc(i)}</span>`).join('')}</div></div>
+      ${pastProgramsBlock(v)}
       ${getStudy()?`<button class="btn btn--md btn--soft btn--block" id="interest" style="margin-top:14px">🔔 지금은 아니어도, 이런 모임 뜨면 알려줘요</button>`:''}
       </div>
       <div class="cta-dock"><button class="btn btn--lg btn--primary" id="join" ${full?'disabled':''}>${full?'정원이 찼어요':'이 모임 신청하기'}</button></div>`);
@@ -515,6 +573,7 @@ async function screenVenue(id){
     scrRaw(`<div class="screen__pad" style="padding-bottom:100px">
       ${hero}${vbanner}
       ${facilities}
+      ${pastProgramsBlock(v)}
       <div class="sectitle">이 공간에서 열 수 있어요</div>
       <div>${(v.program_candidates||[]).map(p=>`<div class="lrow">${iconChip(ICON.check)}<div><div class="tt">${esc(p)}</div></div></div>`).join('')||'<span class="hint">협의된 프로그램 후보가 없어요.</span>'}</div>
       <div class="sectitle">유휴 시간</div>
@@ -525,6 +584,17 @@ async function screenVenue(id){
   }
 }
 const iconChip = ic => `<span class="ic">${ic}</span>`;
+
+/* 이 공간에서 이전에 열린 프로그램 — track record. 빈 공간이어도 '죽은 곳'이 아님을 보여준다. */
+function pastProgramsBlock(v){
+  const ps = v.past_programs || [];
+  if(!ps.length) return '';
+  return `<div class="sectitle">이 공간에서 열렸던 프로그램</div>
+    <div class="pastprogs">${ps.map(p=>`<div class="ppcard">
+      <div class="ppcard__tt">${esc(p.title)}</div>
+      <div class="ppcard__meta">${esc(p.ago||'')}${p.joined?` · ${p.joined}명 참여`:''}</div>
+    </div>`).join('')}</div>`;
+}
 
 /* ═══════════ S5 호스트 개설 ═══════════ */
 async function screenHostApply(venueId){
@@ -560,6 +630,71 @@ async function screenHostApply(venueId){
   };
 }
 
+/* ═══════════ S5b 호스트 되기 (참여자→호스트 후킹) ═══════════
+ * 참여자 창에서 바로 호스트로 전환하고, 우리 동네에서 지금 열 수 있는
+ * (빈·신청 가능한) 공간을 골라 개설 신청까지 잇는 진입 화면. */
+function hostVenueCard(v){
+  const openable=!v.live;
+  const idle=`${esc(v.idle_days||'평일')} ${esc(v.idle_start||'')}~${esc(v.idle_end||'')}`;
+  return `<div class="mcard mcard--tap" data-hv="${v.id}">
+    <div class="top"><div class="mt">${esc(v.name)}</div><span class="badge badge--${openable?'closed':'live'}">${openable?'신청 가능':'진행중'}</span></div>
+    <div class="venue">${ICON.store}${esc(v.category||'')} · 유휴 ${idle}</div>
+    <div class="hint">최대 ${v.capacity}명 · 1회 ${v.slot_minutes||120}분 · 여기에 프로그램 열기 ›</div></div>`;
+}
+async function screenHostBrowse(){
+  state.ownerMode=false;
+  renderAppbar({title:'호스트 되기', back:true, roleToggle:'host'}); renderTabbar('map'); setAdsVisible(true);
+  const rid=homeRegion();
+  if(getStudy()) logEvent('host_browse_view', {});
+  scr(`<div id="hbBody"><div class="empty">불러오는 중…</div></div>`);
+  let venues=[]; try{ venues=await db.listVenues(rid); }catch(e){ toast(e.message,'err'); }
+  const render=()=>{
+    const isHost=!!state.profile?.is_host;
+    const open=venues.filter(v=>!v.live);
+    const busy=venues.filter(v=>v.live);
+    const body=document.getElementById('hbBody'); if(!body) return;
+    const head = isHost
+      ? `<div class="hl"><span>${ICON.check}</span><div class="t"><b>호스트예요.</b> 아래 우리 동네 공간 중 하나를 골라 프로그램을 열어보세요. 사장님이 수락하면 지도에 주황 핀으로 떠요.</div></div>`
+      : `<div class="owner-hero" style="padding:6px 6px 2px">
+          <div class="owner-hero__k">${ICON.keypin}</div>
+          <h1 style="font-size:21px">모임을 여는 사람,<br>호스트가 되어보세요</h1>
+          <p>낯선 대관이 아니라 검증된 이웃이 이끄는 자리예요. 우리 동네 빈 공간을 빌려 원하는 모임을 열고, 참가비의 일부를 나눠 가져요.</p></div>
+        <div class="hl"><span>${ICON.users}</span><div class="t">호스트는 <b>매개자</b>예요 — 공간(사장님)과 사람(참여자)을 잇고, 참가비의 최소 30%는 공간에 돌아가요.</div></div>
+        <button class="btn btn--lg btn--primary btn--block" id="hbSwitch" style="margin:6px 0 4px">네, 호스트로 전환할게요</button>
+        <p class="hint center" style="margin-bottom:8px">이미 거주 인증을 마쳐서 바로 시작할 수 있어요.</p>`;
+    const hbMap = isHost && venues.length
+      ? `<div class="kmap" id="hbmap" style="margin-bottom:14px"><div class="empty" style="margin:auto">지도 불러오는 중…</div></div>`
+      : '';
+    const list = isHost
+      ? `${hbMap}<div class="sectitle">지금 열 수 있는 공간 <span class="sub">· ${esc(regionName(rid))}</span></div>
+         ${open.length? open.map(hostVenueCard).join('') : `<div class="empty" style="padding:22px"><div class="ic">🌙</div>지금 비어 있는 공간이 없어요.<br>진행 중인 공간에도 다른 시간대로 신청할 수 있어요.</div>`}
+         ${busy.length?`<div class="sectitle">진행 중인 공간 <span class="sub">· 다른 시간대 신청</span></div>${busy.map(hostVenueCard).join('')}`:''}`
+      : '';
+    body.innerHTML=`<div style="padding-bottom:20px">${head}${list}</div>`;
+    const sw=document.getElementById('hbSwitch');
+    if(sw) sw.onclick=async()=>{
+      try{ await db.updateProfile({ is_host:true }); if(state.profile) state.profile.is_host=true;
+        if(getStudy()) logEvent('host_switch', { from:'participant' });
+        toast('호스트로 전환됐어요. 열 공간을 골라보세요.','ok'); render();
+      }catch(e){ toast(e.message,'err'); }
+    };
+    body.querySelectorAll('[data-hv]').forEach(el=>el.onclick=()=>go('#/host-apply/'+el.dataset.hv));
+    // 리스트와 같은 공간을 지도로도 — 핀 탭 시 그 공간에 프로그램 열기(호스트 신청)
+    const hbmap=document.getElementById('hbmap');
+    if(hbmap){
+      const rObj=state.regions.find(r=>r.id===rid);
+      const center = rObj && rObj.lat!=null ? { lat:rObj.lat, lng:rObj.lng } : null;
+      mountKakaoMap(hbmap, venues, id=>go('#/host-apply/'+id), { center }).then(ok=>{
+        if(ok || !document.body.contains(hbmap)) return;
+        hbmap.classList.add('minimap');
+        hbmap.innerHTML = venues.filter(v=>v.mx!=null).map(v=>`<button class="mpin ${v.live?'mpin--live':'mpin--dim'}" style="left:${v.mx}%;top:${v.my}%" data-hv="${v.id}"><span class="mpin__dot"></span><span class="mpin__label">${esc(v.name)}</span></button>`).join('') || `<div class="empty" style="margin:auto"><div class="ic">🗺️</div>지도에 표시할 위치 정보가 아직 없어요.</div>`;
+        hbmap.querySelectorAll('[data-hv]').forEach(el=>el.onclick=()=>go('#/host-apply/'+el.dataset.hv));
+      });
+    }
+  };
+  render();
+}
+
 /* ═══════════ S6 신청 완료 ═══════════ */
 function screenJoined(){
   renderAppbar(null); renderTabbar(null); setAdsVisible(false);
@@ -592,8 +727,9 @@ async function screenMy(){
     const hb=m=> m.status==='pending'?`<span class="badge badge--closed">승인 대기</span>`
       : m.status==='rejected'?`<span class="badge badge--closed">반려됨</span>`
       : `<span class="badge badge--live">${m.joined}/${m.capacity}</span>`;
-    body.innerHTML = hs.length? hs.map(m=>`<div class="mcard mcard--tap" data-v="${m.venue_id}"><div class="top"><div class="mt" style="font-size:15px">${esc(m.title)}</div>${hb(m)}</div><div class="venue">${ICON.store}${esc(m.venue_name||'')} · ${fmtShort(m.starts_at)}</div></div>`).join('') : `<div class="empty"><div class="ic">✚</div>아직 연 모임이 없어요.<br>지도의 빈 공간에서 프로그램을 열어보세요.</div>`;
+    body.innerHTML = hs.length? hs.map(m=>`<div class="mcard mcard--tap" data-v="${m.venue_id}"><div class="top"><div class="mt" style="font-size:15px">${esc(m.title)}</div>${hb(m)}</div><div class="venue">${ICON.store}${esc(m.venue_name||'')} · ${fmtShort(m.starts_at)}</div></div>`).join('') : `<div class="empty"><div class="ic">✚</div>아직 연 모임이 없어요.<br>우리 동네 빈 공간에서 프로그램을 열어보세요.<div><button class="btn btn--md btn--soft" id="toHostBrowse" style="margin-top:16px">호스트 되기</button></div></div>`;
   }
+  const thb=document.getElementById('toHostBrowse'); if(thb) thb.onclick=()=>go('#/host-browse');
   body.querySelectorAll('[data-v]').forEach(el=>el.onclick=()=>go('#/venue/'+el.dataset.v));
 }
 async function screenMe(){
@@ -605,22 +741,17 @@ async function screenMe(){
   const active=passes.filter(x=>!x.expired&&x.status==='active');
   const isOwner=p?.is_venue_owner;
   const roles=[p?.is_host?'호스트':'', isOwner?'사장님':''].filter(Boolean).join(' · ');
-  // 사장님 진입/전환 카드
-  const ownerRow = state.ownerMode
-    ? `<div class="lrow lrow--tap" id="toParticipant">${iconChip(ICON.map)}<div><div class="tt">참여자 모드로 전환</div><div class="ss">지도·모임 둘러보기</div></div><span class="chev">›</span></div>`
-    : `<div class="lrow lrow--tap" id="toOwner">${iconChip(ICON.store)}<div><div class="tt">${isOwner?'사장님 모드':'사장님이신가요?'}</div><div class="ss">${isOwner?'내 매장·요청·정산 관리':'유휴 시간에 공간을 열고 수익 만들기'}</div></div><span class="chev">›</span></div>`;
+  // 계정 유형(참여자/사장님)은 처음에 한 번 고른다 → '나'에서 모드 전환하지 않는다.
+  // 참여자↔호스트 전환은 지도 우상단 토글로 옮겼다(여기선 뺀다).
   scr(`<div class="card" style="cursor:default">
       <div class="mt" style="font-size:18px">${esc(p?.display_name||'게스트')}</div>
       <p class="hint" style="margin:6px 0 10px">📍 ${esc(regionName(p?.region_id))} · <span style="color:var(--pos)">거주 인증됨</span>${roles?' · '+esc(roles):''}</p>
       <div class="chips">${(p?.interests||[]).map(i=>`<span class="chip chip--tag">${esc(i)}</span>`).join('')}</div>
     </div>
-    ${ownerRow}
-    ${getStudy()?.role==='owner'?'':`<div class="lrow lrow--tap" id="toPass">${iconChip(ICON.ticket)}<div><div class="tt">지역 이용권</div><div class="ss">보유 ${active.length}장</div></div><span class="chev">›</span></div>`}
+    ${state.ownerMode||getStudy()?.role==='owner'?'':`<div class="lrow lrow--tap" id="toPass">${iconChip(ICON.ticket)}<div><div class="tt">지역 이용권</div><div class="ss">보유 ${active.length}장</div></div><span class="chev">›</span></div>`}
     <div class="divider"></div>
     <button class="btn btn--md btn--neutral btn--block" id="logout">로그아웃</button>
     <p class="hint center" style="margin-top:14px">${IS_MOCK?'체험(mock) 모드 — 데이터는 이 브라우저에만 저장돼요.':'Supabase 연결됨'}</p>`);
-  const oo=document.getElementById('toOwner'); if(oo) oo.onclick=()=>{ state.ownerMode=true; go('#/owner-home'); };
-  const op=document.getElementById('toParticipant'); if(op) op.onclick=()=>{ state.ownerMode=false; go('#/map'); };
   const tp=document.getElementById('toPass'); if(tp) tp.onclick=()=>go('#/passes');
   document.getElementById('logout').onclick=async()=>{ await db.signOut(); state.session=null; state.profile=null; state.viewRegion=null; state.viewable=[]; state.ownerMode=false; go('#/splash'); };
 }
@@ -778,6 +909,7 @@ async function screenOwnerHome(){
   state.ownerMode=true; trackOwnerScreen('home');
   renderAppbar({title:'사장님 센터', brand:false}); setAdsVisible(true);
   scr(`<div id="ohBody"><div class="empty">불러오는 중…</div></div>`);
+  try{ await db.ensureOwnerVenue(); }catch(e){}   // 매장·요청 기본 세팅 보장
   let d; try{ d=await db.ownerData(); }catch(e){ d={venues:[],pending:[],approved:[],settle:[],confirmedSum:0,potentialSum:0}; }
   renderOwnerTabbar('ohome', d.pending.length);
   const body=document.getElementById('ohBody');
@@ -832,6 +964,7 @@ async function screenOwnerRequests(){
   state.ownerMode=true; trackOwnerScreen('requests');
   renderAppbar({title:'개설 요청', back:true, onBack:()=>go('#/owner-home')}); setAdsVisible(true);
   scr(`<div id="orBody"><div class="empty">불러오는 중…</div></div>`);
+  try{ await db.ensureOwnerVenue(); }catch(e){}   // 매장·요청 기본 세팅 보장
   let reqs=[]; try{ reqs=await db.venueRequests(); }catch(e){ toast(e.message,'err'); }
   renderOwnerTabbar('oreq', reqs.length);
   const body=document.getElementById('orBody');
@@ -921,6 +1054,7 @@ async function screenOwnerSettlement(){
   state.ownerMode=true; trackOwnerScreen('settlement');
   renderAppbar({title:'정산', back:true, onBack:()=>go('#/owner-home')}); setAdsVisible(true);
   scr(`<div id="osBody"><div class="empty">불러오는 중…</div></div>`);
+  try{ await db.ensureOwnerVenue(); }catch(e){}   // 매장·요청 기본 세팅 보장
   let d; try{ d=await db.ownerData(); }catch(e){ d={settle:[],confirmedSum:0,potentialSum:0,pending:[]}; }
   renderOwnerTabbar('osettle', d.pending.length);
   const body=document.getElementById('osBody');
@@ -1010,22 +1144,20 @@ function ownerTrialModal(cands=[]){   // L3
 const OWNER_TOPICS = ['시범 준비되면','수익 사례 생기면','정식 오픈하면'];
 const OWNER_CALL_TIME = ['오전','점심 후','저녁','아무 때나'];
 function ownerLeadModal(){   // L4
-  let channel='전화';
   const topics=new Set([OWNER_TOPICS[0]]); const callRef={v:''};
   const wrap=document.createElement('div'); wrap.className='modal';
   wrap.innerHTML=`<div class="modal__bd"></div>
     <div class="modal__sheet" role="dialog" aria-modal="true" aria-label="연락처">
       <div class="modal__grip"></div>
-      <div class="modal__title">시범 타임 잡고, 어디로 연락드릴까요?</div>
+      <div class="modal__title">시범 타임 잡을게요</div>
       <div class="modal__body">
-        <p class="hint" style="margin:-4px 0 12px">연락처는 시범 준비·알림에만 써요.</p>
+        <p class="hint" style="margin:-4px 0 12px">이메일은 시범 준비·알림에만 써요. 안 남기셔도 괜찮아요.</p>
         <div class="sectitle" style="margin-top:0">어떤 소식 받으실래요?</div>
         <div class="chips" id="otopics">${OWNER_TOPICS.map(t=>`<button type="button" class="chip" data-v="${esc(t)}" aria-pressed="${t===OWNER_TOPICS[0]}">${esc(t)}</button>`).join('')}</div>
         <div class="sectitle">연락은 언제가 편하세요?</div>
         <div class="chips" id="ocall">${OWNER_CALL_TIME.map(t=>`<button type="button" class="chip" data-v="${esc(t)}" aria-pressed="false">${esc(t)}</button>`).join('')}</div>
-        <div class="sectitle">어디로 연락드릴까요?</div>
-        <div class="seg" id="och">${['전화','카톡','이메일'].map((c,i)=>`<button data-c="${c}" aria-selected="${i===0}">${c}</button>`).join('')}</div>
-        <div class="field" style="margin-top:12px"><input class="input" id="oval" placeholder="전화번호 / 카톡 아이디 / 이메일" autocomplete="off"></div>
+        <div class="sectitle">이메일로 알려드릴게요 <span class="sub">· 선택</span></div>
+        <div class="field" style="margin-top:8px"><input class="input" id="oval" type="email" placeholder="you@example.com" autocomplete="off"></div>
       </div>
       <div class="modal__cta">
         <button class="btn btn--md btn--neutral btn--block" data-skip>건너뛰기</button>
@@ -1035,17 +1167,17 @@ function ownerLeadModal(){   // L4
   document.body.appendChild(wrap); requestAnimationFrame(()=>wrap.classList.add('show'));
   const close=()=>{ wrap.classList.remove('show'); setTimeout(()=>wrap.remove(),240); };
   bindMulti(wrap,'otopics',topics); bindSingle(wrap,'ocall',callRef);
-  const seg=wrap.querySelector('#och');
-  seg.querySelectorAll('[data-c]').forEach(el=>el.onclick=()=>{ channel=el.dataset.c; seg.querySelectorAll('[data-c]').forEach(x=>x.setAttribute('aria-selected',x===el)); mountSeg(seg); });
-  mountSeg(seg);
   wrap.querySelector('.modal__bd').onclick=()=>{ close(); go('#/survey'); };
   wrap.querySelector('[data-skip]').onclick=()=>{ close(); go('#/survey'); };
   wrap.querySelector('[data-ok]').onclick=()=>{ const v=wrap.querySelector('#oval').value.trim();
-    if(!v) return toast('연락처를 입력하거나 건너뛰어 주세요.','err');
-    const oi=getOwnerIntake()||{}; const tps=[...topics], timePref=callRef.v||null;
-    logEvent('owner_lead',{ contact_hash:hashContact(channel+':'+v), next_step:'trial_scheduled', topics:tps, call_time:timePref });
-    saveWaitlist({ channel, contact:v, regionId:oi.regionId||null, interests:[oi.category].filter(Boolean), topics:tps, timePref });   // 실제 알림용(옵트인)
-    close(); toast('시범 타임 준비되면 연락드릴게요!','ok'); go('#/survey'); };
+    if(v){   // 이메일을 남긴 경우만 — 실제 대기자(리드) 적재
+      if(!/.+@.+\..+/.test(v)) return toast('이메일 형식을 확인해 주세요.','err');
+      const oi=getOwnerIntake()||{}; const tps=[...topics], timePref=callRef.v||null;
+      logEvent('owner_lead',{ contact_hash:hashContact('이메일:'+v), next_step:'trial_scheduled', topics:tps, call_time:timePref });
+      saveWaitlist({ channel:'이메일', contact:v, regionId:oi.regionId||null, interests:[oi.category].filter(Boolean), topics:tps, timePref });
+      toast('시범 타임 준비되면 연락드릴게요!','ok');
+    }
+    close(); go('#/survey'); };   // 이메일 없이도 제출 가능(리드 집계엔 미포함)
 }
 
 /* ═══════════ 검증(연구) 계층 — 페르소나·지갑·의사결정 로깅 ═══════════ */
@@ -1066,44 +1198,70 @@ function screenStudy(){
     try{ const saved=sessionStorage.getItem(INTAKE_KEY); if(saved) state.intake={ ...JSON.parse(saved) }; }catch(e){}
     if(state.intake?.consent) return beginStudy(auto);
   }
-  if(!state.intake) state.intake={ consent:false, ageRange:'', gender:'', nickname:'', regionId:'', persona:'' };
+  if(!state.intake) state.intake={ consent:false, ageRange:'', gender:'', nickname:'', regionId:'', persona:'', role:'participant' };
+  if(!state.intake.role) state.intake.role='participant';
   const iv=state.intake;
-  scrRaw(`<div class="gate"><div class="gate__inner" style="text-align:left">
-    <div class="gate__mark" style="margin:0 auto 6px">${ICON.keypin}</div>
-    <h1 style="text-align:center">잠깐,<br>당신을 알려주세요</h1>
-    <p style="text-align:center">익명으로 진행돼요. 아래를 채우면 <b>당신 동네의 진짜 지도</b>가 열리고 <b>${won(STUDY_BUDGET)} 크레딧</b>을 드려요.</p>
-
-    <div class="field" style="margin-top:18px"><label>나이대</label>
+  const isOwner=iv.role==='owner';
+  // 역할 선택(참여자/사장님) — 이 페이지에서 바로 고른다. 사장님은 가게 정보를 받는 다음 화면으로 이어짐.
+  const roleSeg=`<div class="field" style="margin-top:16px"><label>누구로 참여하시나요? <span class="hint" style="font-weight:600;color:var(--brand)">· 필수</span></label>
+    <div class="seg" id="roleSeg">
+      <button type="button" data-role="participant" aria-selected="${!isOwner}">🧭 참여자</button>
+      <button type="button" data-role="owner" aria-selected="${isOwner}">🏪 사장님</button>
+    </div></div>`;
+  // 참여자 폼(현행) / 사장님 안내(다음 화면으로)
+  const participantForm=`
+    <div class="field"><label>나이대 <span class="hint" style="font-weight:600;color:var(--brand)">· 필수</span></label>
       <div class="chips" id="ageChips">${AGE_OPTIONS.map(a=>`<button type="button" class="chip" data-age="${esc(a)}" aria-pressed="${iv.ageRange===a}">${esc(a)}</button>`).join('')}</div></div>
 
-    <div class="field"><label>성별 <span class="hint" style="font-weight:400">· 선택</span></label>
+    <div class="field"><label>성별 <span class="hint" style="font-weight:600;color:var(--brand)">· 필수</span></label>
       <div class="chips" id="genderChips">${GENDER_OPTIONS.map(g=>`<button type="button" class="chip" data-gender="${esc(g)}" aria-pressed="${iv.gender===g}">${esc(g)}</button>`).join('')}</div></div>
 
     <div class="field"><label>동네에서 불릴 이름 <span class="hint" style="font-weight:400">· 익명</span></label>
       <input class="input" id="nick" placeholder="비워두면 자동으로 지어드려요" value="${esc(iv.nickname)}"></div>
 
-    <div class="field"><label>실제 거주 지역</label>${regionTrigger('region', iv.regionId, '내 동네 선택 (예: 마포구)')}
-      <p class="hint" style="margin-top:6px">고른 동네의 실제 지도가 열려요. 서울은 구, 그 외는 시 단위예요.</p></div>
+    <div class="field"><label>실제 거주 지역 <span class="hint" style="font-weight:600;color:var(--brand)">· 필수</span></label>${regionTrigger('region', iv.regionId, '내 동네 선택 (예: 마포구)')}
+      <p class="hint" style="margin-top:6px">고른 동네의 실제 지도가 열려요. 처음엔 시 단위로 열려요. (서울만 구 단위 — 예: 마포구)</p></div>
 
-    <div class="field"><label>동네를 어떻게 쓰세요?</label>
-      <div class="gate__cta" style="gap:8px">${PERSONAS.map(p=>`<button type="button" class="card persona-card ${iv.persona===p.key?'is-sel':''}" data-p="${p.key}"><div class="pc-emo">${p.emoji}</div><div class="pc-body"><div class="mt">${esc(p.label)}</div><p class="hint" style="margin-top:4px">${esc(p.desc)}</p></div></button>`).join('')}</div></div>
+    <div class="field"><label>동네를 어떻게 쓰세요? <span class="hint" style="font-weight:600;color:var(--brand)">· 필수</span></label>
+      <div class="persona-pick">${PERSONAS.map(p=>`<button type="button" class="card persona-card persona-card--sm ${iv.persona===p.key?'is-sel':''}" data-p="${p.key}" title="${esc(personaDesc(p, iv.regionId))}"><div class="pc-emo">${p.emoji}</div><div class="mt">${esc(p.short||p.label)}</div></button>`).join('')}</div></div>
 
     <label class="check" style="margin-top:6px"><input type="checkbox" id="consent" ${iv.consent?'checked':''}><span class="box">${ICON.check}</span>
       <span><b>개인정보 수집·이용에 동의</b>합니다. (나이대·성별·닉네임·거주지역·선택기록을 <b>익명</b>으로 설문 목적에만 사용, 언제든 파기 요청 가능)</span></label>
 
-    <div class="gate__cta" style="margin-top:14px"><button class="btn btn--lg btn--primary btn--block" id="start">동의하고 시작하기</button></div>
+    <div class="gate__cta" style="margin-top:14px"><button class="btn btn--lg btn--primary btn--block" id="start">동의하고 시작하기</button></div>`;
+  const ownerForm=`
+    <div class="hl" style="margin-top:6px"><span>${ICON.store}</span><div class="t">사장님은 <b>가게 정보(업종·유휴 시간 등)</b>를 받는 다음 화면으로 이어져요. 유휴 시간을 열고 요청을 받아보실 수 있어요.</div></div>
+    <div class="gate__cta" style="margin-top:14px"><button class="btn btn--lg btn--primary btn--block" id="toOwner">사장님으로 계속하기</button></div>`;
+  scrRaw(`<div class="gate"><div class="gate__inner" style="text-align:left">
+    <div class="gate__mark" style="margin:0 auto 6px">${ICON.keypin}</div>
+    <h1 style="text-align:center">잠깐,<br>당신을 알려주세요</h1>
+    <p style="text-align:center">${isOwner?'익명으로 진행돼요. 사장님 계정으로 데모를 둘러봅니다.':`익명으로 진행돼요. 아래를 채우면 <b>당신 동네의 진짜 지도</b>가 열리고 <b>${won(STUDY_BUDGET)} 크레딧</b>을 드려요.`}</p>
+    ${roleSeg}
+    ${isOwner?ownerForm:participantForm}
     </div></div>`);
 
   const scope=$screen;
+  mountSeg(scope.querySelector('#roleSeg'));
+  scope.querySelectorAll('#roleSeg [data-role]').forEach(el=>el.onclick=()=>{ const r=el.dataset.role; if(iv.role===r) return; iv.role=r; screenStudy(); });
+  if(isOwner){
+    scope.querySelector('#toOwner').onclick=()=>{
+      const u=new URL(window.location.href); u.searchParams.set('role','owner'); u.hash='#/splash';
+      window.location.replace(u.toString());   // 사장님 경로는 STUDY_ROLE 반영 위해 재진입(screenPick 과 동일)
+    };
+    return;
+  }
   scope.querySelectorAll('#ageChips [data-age]').forEach(el=>el.onclick=()=>{ iv.ageRange=el.dataset.age; scope.querySelectorAll('#ageChips [data-age]').forEach(x=>x.setAttribute('aria-pressed', x.dataset.age===iv.ageRange)); });
-  scope.querySelectorAll('#genderChips [data-gender]').forEach(el=>el.onclick=()=>{ iv.gender = iv.gender===el.dataset.gender?'':el.dataset.gender; scope.querySelectorAll('#genderChips [data-gender]').forEach(x=>x.setAttribute('aria-pressed', x.dataset.gender===iv.gender)); });
+  scope.querySelectorAll('#genderChips [data-gender]').forEach(el=>el.onclick=()=>{ iv.gender=el.dataset.gender; scope.querySelectorAll('#genderChips [data-gender]').forEach(x=>x.setAttribute('aria-pressed', x.dataset.gender===iv.gender)); });
   scope.querySelector('#nick').oninput=e=>{ iv.nickname=e.target.value; };
   scope.querySelector('#consent').onchange=e=>{ iv.consent=e.target.checked; };
   scope.querySelectorAll('[data-p]').forEach(el=>el.onclick=()=>{ iv.persona=el.dataset.p; scope.querySelectorAll('[data-p]').forEach(x=>x.classList.toggle('is-sel', x.dataset.p===iv.persona)); });
   scope.querySelector('#region').onclick=()=>openRegionPicker({ selected:iv.regionId, title:'어느 동네에 사세요?',
-    onPick:id=>{ iv.regionId=id; const b=scope.querySelector('#region'); b.classList.remove('is-empty'); b.querySelector('.rpick__lbl').textContent=regionName(id); } });
+    onPick:id=>{ iv.regionId=id; const b=scope.querySelector('#region'); b.classList.remove('is-empty'); b.querySelector('.rpick__lbl').textContent=regionName(id);
+      // 고른 동네로 페르소나 예시 문구를 즉시 리스킨
+      scope.querySelectorAll('[data-p]').forEach(el=>{ const pk=personaByKey(el.dataset.p); const h=el.querySelector('.pc-body .hint'); if(pk&&h) h.textContent=personaDesc(pk, id); }); } });
   scope.querySelector('#start').onclick=()=>{
     if(!iv.ageRange) return toast('나이대를 골라 주세요.','err');
+    if(!iv.gender)   return toast('성별을 골라 주세요.','err');
     if(!iv.regionId) return toast('거주 지역을 선택해 주세요.','err');
     if(!iv.persona)  return toast('동네를 어떻게 쓰는지 골라 주세요.','err');
     if(!iv.consent)  return toast('개인정보 수집·이용에 동의해 주세요.','err');
@@ -1209,6 +1367,17 @@ const flagged = k => { try{ return localStorage.getItem(k)==='1'; }catch(e){ ret
 const setFlag = k => { try{ localStorage.setItem(k,'1'); }catch(e){} };
 const clearFlags = () => { try{ localStorage.removeItem(SOLO_KEY); localStorage.removeItem(WTP_KEY); }catch(e){} };
 
+/* 설문 부분응답 자동저장(tester별) — 문항마다 저장해 도중 이탈해도 답이 남게. 제출/다시하기 시 비움. */
+const SURVEY_DRAFT_KEY='ug_survey_draft_v1';
+function loadSurveyDraft(tester){ try{ const r=localStorage.getItem(SURVEY_DRAFT_KEY); if(!r) return {}; const d=JSON.parse(r); return (d&&d.tester===tester)?(d.ans||{}):{}; }catch(e){ return {}; } }
+function saveSurveyDraft(tester, ans){ if(!tester) return; try{ localStorage.setItem(SURVEY_DRAFT_KEY, JSON.stringify({ tester, ans })); }catch(e){} }
+function clearSurveyDraft(){ try{ localStorage.removeItem(SURVEY_DRAFT_KEY); }catch(e){} }
+/* 저장된 초안을 렌더된 DOM에 반영(버튼 aria-pressed·textarea 값 복원) */
+function applySurveyDraft(scope, qs, ans){ qs.forEach(q=>{ const v=ans[q.id]; if(v==null||v==='') return;
+  if(q.type==='open'){ const t=scope.querySelector(`[data-q="${q.id}"][data-open]`); if(t) t.value=v; return; }
+  const box=scope.querySelector(`[data-q="${q.id}"]`); if(!box) return;
+  box.querySelectorAll('button').forEach(b=> b.setAttribute('aria-pressed', String(b.dataset.v)===String(v))); }); }
+
 /* 혼자온 1문항(§3-7) — 첫 모임 담을 때 or 종료 전, 딱 1회 */
 function maybeAskSolo(done){
   if(flagged(SOLO_KEY)) return done();
@@ -1267,7 +1436,8 @@ function screenSurvey(){
   const mb=document.getElementById('modebar'); if(mb) mb.innerHTML='';
   const role = STUDY_ROLE;
   const qs = surveyQuestions(role);
-  const ans = {};
+  const s = getStudy(); const tester = s?.tester || null;
+  const ans = loadSurveyDraft(tester);   // 이 tester 의 저장된 초안 복원(도중 이탈 대비)
   const intro = role==='owner'
     ? '딱 5개만요. 사장님 답이 다음 사장님을 설득할 근거가 돼요.'
     : '마지막 30초만요. 방금 써보신 언더그라운드맵, 솔직한 한마디가 저희에겐 진짜 큰 데이터예요.';
@@ -1279,12 +1449,14 @@ function screenSurvey(){
     `<button class="btn btn--lg btn--primary btn--block" id="svDone">완료</button>
      <button class="btn btn--md btn--neutral btn--block" id="svSkip" style="margin-top:8px">건너뛰기</button>`);
   const list=document.getElementById('svList');
-  const prog=()=>{ const n=qs.filter(q=>ans[q.id]!=null && ans[q.id]!=='').length; const el=document.querySelector('#svProg span'); if(el) el.style.width=Math.round(n/qs.length*100)+'%'; };
+  const prog=()=>{ const n=qs.filter(q=>ans[q.id]!=null && ans[q.id]!=='').length; const el=document.querySelector('#svProg span'); if(el) el.style.width=Math.round(n/qs.length*100)+'%'; saveSurveyDraft(tester, ans); };
   qs.forEach(q=>bindQuestion(list, q, ans, prog));
+  applySurveyDraft(list, qs, ans); prog();   // 복원한 답을 화면·진행바에 반영
   const submit=(skipped)=>{
     const nps  = role==='owner' ? null : (ans['q5']!=null ? +ans['q5'] : null);
     const open = role==='owner' ? (ans['o5']||'') : (ans['q10']||'');
     logEvent('survey_response', { role, answers:ans, nps, open, skipped:!!skipped });
+    clearSurveyDraft();   // 제출 완료 → 초안 비움
     go(role==='owner' ? '#/thanks' : '#/lead');
   };
   document.getElementById('svDone').onclick=()=>submit(false);
@@ -1304,34 +1476,32 @@ function bindSingle(scope, id, ref){ scope.querySelectorAll(`#${id} [data-v]`).f
 function screenLead(){
   renderAppbar({title:'거의 끝났어요', back:false}); renderTabbar(null); setAdsVisible(false);
   const mb=document.getElementById('modebar'); if(mb) mb.innerHTML='';
-  let channel='카톡';
   const topics=new Set([LEAD_TOPICS[0]]); const cats=new Set(); const timeRef={v:''};
   fscr(`
     <h1 class="dtitle" style="margin-top:6px;line-height:1.5">이 동네에 진짜로 이런 모임이 열리면<br><span style="color:var(--brand)">가장 먼저 알려드릴게요.</span></h1>
-    <p class="hint" style="margin-bottom:16px">원하시는 분만요. 연락처는 오픈 알림에만 쓰고, 아래 고른 취향에 맞는 모임이 뜨면 콕 집어 알려드려요.</p>
+    <p class="hint" style="margin-bottom:16px">원하시는 분만요. 이메일은 오픈 알림에만 쓰고, 아래 고른 취향에 맞는 모임이 뜨면 콕 집어 알려드려요.</p>
 
     <div class="field"><label>어떤 소식 받고 싶어요?</label>${chipRow('lTopics', LEAD_TOPICS, [LEAD_TOPICS[0]])}</div>
     <div class="field"><label>어떤 모임이 뜨면 알려드릴까요? <span class="sub">· 복수</span></label>${chipRow('lCats', LEAD_CATS)}</div>
     <div class="field"><label>주로 언제가 편해요?</label>${chipRow('lTime', LEAD_TIMES)}</div>
 
-    <div class="field"><label>어디로 알려드릴까요?</label>
-      <div class="seg" id="lch">${['카톡','전화','이메일'].map((c,i)=>`<button data-c="${c}" aria-selected="${i===0}">${c}</button>`).join('')}</div>
-      <input class="input" id="lval" style="margin-top:12px" placeholder="카톡 아이디 / 전화번호 / 이메일" autocomplete="off"></div>
+    <div class="field"><label>알림 받을 이메일 <span class="sub">· 선택</span></label>
+      <input class="input" id="lval" type="email" placeholder="you@example.com" autocomplete="off"></div>
     <label class="check"><input type="checkbox" id="lok"><span class="box">${ICON.check}</span><span>오픈 알림 받기에 동의해요</span></label>`,
     `<button class="btn btn--lg btn--primary btn--block" id="leadGo">가장 먼저 알림 받기</button>
      <button class="btn btn--md btn--neutral btn--block" id="leadSkip" style="margin-top:8px">괜찮아요, 건너뛰기</button>`);
   const scope=$screen;
   bindMulti(scope,'lTopics',topics); bindMulti(scope,'lCats',cats); bindSingle(scope,'lTime',timeRef);
-  const seg=document.getElementById('lch');
-  seg.querySelectorAll('[data-c]').forEach(el=>el.onclick=()=>{ channel=el.dataset.c; seg.querySelectorAll('[data-c]').forEach(x=>x.setAttribute('aria-selected',x===el)); mountSeg(seg); });
-  mountSeg(seg);
   document.getElementById('leadGo').onclick=()=>{ const v=document.getElementById('lval').value.trim();
-    if(!v) return toast('연락처를 입력하거나 건너뛰어 주세요.','err');
-    if(!document.getElementById('lok').checked) return toast('오픈 알림 수신에 동의해 주세요.','err');
-    const interests=[...cats], tps=[...topics], timePref=timeRef.v||null, region=homeRegion();
-    logEvent('lead_capture',{ channel, contact_hash:hashContact(channel+':'+v), topics:tps, interests, time_pref:timePref, region });
-    saveWaitlist({ channel, contact:v, regionId:region, interests, topics:tps, timePref });   // 실제 알림용(옵트인)
-    toast('가장 먼저 알려드릴게요!','ok'); go('#/results'); };
+    if(v){   // 이메일을 남긴 경우만 — 동의 필요 + 실제 대기자(리드) 적재
+      if(!/.+@.+\..+/.test(v)) return toast('이메일 형식을 확인해 주세요.','err');
+      if(!document.getElementById('lok').checked) return toast('오픈 알림 수신에 동의해 주세요.','err');
+      const interests=[...cats], tps=[...topics], timePref=timeRef.v||null, region=homeRegion();
+      logEvent('lead_capture',{ channel:'이메일', contact_hash:hashContact('이메일:'+v), topics:tps, interests, time_pref:timePref, region });
+      saveWaitlist({ channel:'이메일', contact:v, regionId:region, interests, topics:tps, timePref });   // 실제 알림용(옵트인)
+      toast('가장 먼저 알려드릴게요!','ok');
+    }
+    go('#/results'); };   // 이메일 없이도 제출 가능(리드 집계엔 미포함)
   document.getElementById('leadSkip').onclick=()=>go('#/results');
 }
 
@@ -1378,7 +1548,7 @@ function screenResults(){
     <button class="btn btn--md btn--soft btn--block" id="again" style="margin-top:10px">다시 하기</button>
     <p class="hint center" style="margin-top:12px">${IS_MOCK?'응답은 이 브라우저에 저장됐어요. 팀이 취합합니다.':'응답이 study_events 테이블에 기록됐어요.'}</p>`);
   const ex=document.getElementById('exp'); if(ex) ex.onclick=()=>{ const blob=new Blob([JSON.stringify(getStudy(),null,2)],{type:'application/json'}); const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='ug_study_'+s.tester+'.json'; a.click(); };
-  const ag=document.getElementById('again'); if(ag) ag.onclick=async()=>{ resetStudy(); clearFlags(); try{ await db.signOut(); }catch(e){} state.session=null; state.profile=null; state.viewRegion=null; state.viewable=[]; go('#/study'); };
+  const ag=document.getElementById('again'); if(ag) ag.onclick=async()=>{ resetStudy(); clearFlags(); clearSurveyDraft(); try{ await db.signOut(); }catch(e){} state.session=null; state.profile=null; state.viewRegion=null; state.viewable=[]; go('#/study'); };
 }
 const trackPct=(s,k)=>{ const t=(s.trackAmt.A||0)+(s.trackAmt.B||0); return t?Math.round((s.trackAmt[k]||0)/t*100):0; };
 
@@ -1421,7 +1591,8 @@ function computeMetrics(all){
   const N=sessions.length; const persona={local:0,mover:0};
   let gmv=0, leftoverSum=0, buyers=0, passBuyers=0;
   const catCount={}, catAmt={}, timeBand={}, priceBucket={'~6천':0,'8천~1만':0,'1.2만+':0}, reasonFreq={}, trackAmt={A:0,B:0}, passByTier={};
-  const solo=[]; const wtp=[]; let leads=0, interestN=0, abandonN=0;
+  const solo=[]; const wtp=[]; let leads=0, interestN=0, abandonN=0, viewN=0;
+  const viewCats={};   // 클릭해서 열어본 모임(관심) 카테고리 분포 — 결제 전 단계 관심 신호
   const notifyCats={}, notifyTopics={};   // 대기자 관심 카테고리·받고싶은 소식 분포
   const abandonCats={};   // 예산 부족으로 못 담은 것(가격 상한·최고수요)
   const skipReasons={};   // 잔액 남긴 이유(미충족 수요·가격/시간 미스매치)
@@ -1451,6 +1622,7 @@ function computeMetrics(all){
       if(e.type==='lead_capture'){ leads++; cb.leads++;
         (e.payload?.interests||[]).forEach(c=>notifyCats[c]=(notifyCats[c]||0)+1);
         (e.payload?.topics||[]).forEach(t=>notifyTopics[t]=(notifyTopics[t]||0)+1); }
+      if(e.type==='meetup_view'){ viewN++; const c=e.payload?.category; if(c) viewCats[c]=(viewCats[c]||0)+1; }
       if(e.type==='meetup_interest'){ interestN++; const c=e.payload?.category; if(c) notifyCats[c]=(notifyCats[c]||0)+1; }
       if(e.type==='abandon'){ abandonN++; const c=e.payload?.category||(e.payload?.kind==='pass'?'지역 이용권':'기타'); abandonCats[c]=(abandonCats[c]||0)+1; }
       if(e.type==='study_end'){ (e.payload?.reasons||[]).forEach(r=>skipReasons[r]=(skipReasons[r]||0)+1); }
@@ -1490,7 +1662,7 @@ function computeMetrics(all){
     passBuyers, movers, passRate:movers?passBuyers/movers:0, passByTier,
     soloAlone: solo.length?solo.filter(Boolean).length/solo.length:null, soloN:solo.length,
     wtpN:wtp.length, wtpPay: wtp.length?wtp.filter(w=>w.would_pay_real).length/wtp.length:null, leads,
-    interestN, notifyCats, notifyTopics, abandonN, abandonCats, skipReasons,
+    viewN, viewCats, interestN, notifyCats, notifyTopics, abandonN, abandonCats, skipReasons,
     surveyN:surveys.length, nps, q2:surveyDist('q2'), q4:surveyDist('q4'), q7:surveyDist('q7'), q8:surveyDist('q8'),
     intendNow, overclaim, overclaimRate: intendNow?overclaim/intendNow:null,
     byCtx: Object.values(byCtx).sort((a,b)=>b.N-a.N),
@@ -1531,6 +1703,16 @@ async function screenAdmin(){
 
     <div class="sectitle">페르소나 분포</div>
     ${abar('지방 청년', m.persona.local||0, m.N)}${abar('이동 청년', m.persona.mover||0, m.N)}
+
+    <div class="sectitle">프로그램 관심 깔때기 (클릭 → 찜 → 구매)</div>
+    <div class="kpis kpis--3">
+      <div class="kpi"><div class="kpi__v">${m.viewN}</div><div class="kpi__l">모임 클릭<br>(열어봄)</div></div>
+      <div class="kpi"><div class="kpi__v">${m.interestN}</div><div class="kpi__l">찜(알림)<br>신청</div></div>
+      <div class="kpi kpi--brand"><div class="kpi__v">${Object.values(m.catCount).reduce((a,b)=>a+b,0)}</div><div class="kpi__l">실제 구매<br>(건)</div></div>
+    </div>
+    <p class="hint">클릭 대비 구매율 ${m.viewN?Math.round(Object.values(m.catCount).reduce((a,b)=>a+b,0)/m.viewN*100):0}% · "관심(클릭)"과 "지불(구매)"을 프로그램별로 함께 봅니다.</p>
+
+    ${Object.keys(m.viewCats).length?`<div class="sectitle">🖱️ 클릭한 모임 카테고리 (관심 신호)</div>${rankRows(m.viewCats,'번')}`:''}
 
     <div class="sectitle">카테고리 선호 (구매 건수)</div>
     ${rankRows(m.catCount,'건')}
@@ -1613,6 +1795,7 @@ async function screenAdmin(){
 
     <div class="divider"></div>
     <div class="hl"><span>${ICON.chart}</span><div class="t">데이터 원천 — 이 브라우저 ${srcCounts.local} · 불러온 파일 ${srcCounts.import} · 원격 ${srcCounts.remote}</div></div>
+    ${srcCounts.remote===0?`<p class="hint">원격이 0이면 Supabase 읽기 정책(<b>2026-07-07_admin_read.sql</b>)을 아직 안 돌린 거예요. 그전까진 각자 결과화면의 “내 응답 내보내기” JSON을 모아 불러오세요.</p>`:''}
     <button class="btn btn--md btn--soft btn--block" id="imp" style="margin-top:10px">응답 JSON 더 불러오기</button>
     <button class="btn btn--md btn--neutral btn--block" id="expAll" style="margin-top:10px">집계 원본 내보내기 (JSON)</button>
     <input type="file" id="impF" accept="application/json,.json" multiple hidden>
@@ -1631,7 +1814,8 @@ async function screenAdmin(){
 
 /* ═══════════ 라우터 ═══════════ */
 const OWNER_ROUTES=['owner-home','owner-requests','owner-venue','owner-settlement','owner-closing'];
-const AUTHED=['map','venue','host-apply','joined','my','passes','me',...OWNER_ROUTES];
+const HOST_THEME_ROUTES=['host-browse','host-apply'];   // 라이트 테마로 반전되는 호스트 화면
+const AUTHED=['map','venue','host-apply','host-browse','joined','my','passes','me',...OWNER_ROUTES];
 async function route(){
   const hash=window.location.hash||'#/splash';
   const [,path,arg]=hash.match(/^#\/([^/]+)\/?(.*)$/)||[,'splash',''];
@@ -1644,10 +1828,13 @@ async function route(){
   if(path==='passes' && (getStudy()?.role==='owner' || (state.ownerMode && STUDY_ROLE==='owner'))) return go('#/owner-home');
   // 모드 동기화: 참여자 탭 진입 시 사장님 모드 해제(공유 화면 'me' 는 유지)
   if(OWNER_ROUTES.includes(path)){ state.ownerMode=true; setTimeout(refreshOwnerBar,0); }
-  else if(['map','my','passes','venue','host-apply'].includes(path)) state.ownerMode=false;
+  else if(['map','my','passes','venue','host-apply','host-browse'].includes(path)) state.ownerMode=false;
+  // 호스트 화면에선 라이트 테마로 반전(참여자=다크 ↔ 호스트=흰 배경)
+  document.body.classList.toggle('theme-host', HOST_THEME_ROUTES.includes(path));
   if(RESEARCH_ON) setTimeout(refreshWallet, 0);   // 화면 렌더 후 지갑 갱신
   switch(path){
     case 'splash': return screenSplash();
+    case 'pick': return screenPick();
     case 'study': return screenStudy();
     case 'survey': return screenSurvey();
     case 'lead': return screenLead();
@@ -1657,6 +1844,7 @@ async function route(){
     case 'map': return screenMap();
     case 'venue': return screenVenue(arg);
     case 'host-apply': return screenHostApply(arg);
+    case 'host-browse': return screenHostBrowse();
     case 'joined': return screenJoined();
     case 'my': return screenMy();
     case 'passes': return screenPasses();

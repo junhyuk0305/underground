@@ -36,7 +36,8 @@ jobs:
           cat > config.js <<EOF
           window.UG_CONFIG = {
             SUPABASE_URL: "${{ secrets.SUPABASE_URL }}",
-            SUPABASE_ANON_KEY: "${{ secrets.SUPABASE_ANON_KEY }}"
+            SUPABASE_ANON_KEY: "${{ secrets.SUPABASE_ANON_KEY }}",
+            KAKAO_JS_KEY: "06670250d439d9f5ddd143faeb0141cf"
           };
           EOF
 
